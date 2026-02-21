@@ -1,0 +1,4 @@
+# Go stdlib CVE in pre-built third-party binaries (gh, blogwatcher, camsnap, etc.)
+# These are downloaded from upstream GitHub releases — we cannot recompile them.
+# Will be resolved when upstream projects rebuild with Go >= 1.25.7
+CVE-2025-68121

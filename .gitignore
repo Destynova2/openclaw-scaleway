@@ -1,0 +1,21 @@
+# Terraform / OpenTofu
+terraform.tfvars
+encryption.auto.tfvars
+backend.conf
+*.tfstate
+*.tfstate.backup
+.terraform/
+*.tfplan
+crash.log
+
+# Build artifacts
+terraform/killswitch/handler.zip
+containers/token-guard/target/
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Claude Code local settings (contient des patterns avec credentials)
+.claude/settings.local.json

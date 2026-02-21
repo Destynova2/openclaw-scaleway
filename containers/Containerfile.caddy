@@ -1,0 +1,16 @@
+FROM docker.io/library/golang:1.25-alpine AS builder
+RUN apk add --no-cache git
+# renovate: datasource=github-releases depName=caddyserver/xcaddy
+ARG XCADDY_VERSION=v0.4.5
+# renovate: datasource=github-releases depName=mholt/caddy-ratelimit
+ARG CADDY_RATELIMIT_VERSION=v0.1.0
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION} && \
+    xcaddy build --with github.com/mholt/caddy-ratelimit@${CADDY_RATELIMIT_VERSION} --output /usr/bin/caddy
+
+# Alpine 3.21 — corrige CVE-2025-15467 (OpenSSL 3.3.6)
+FROM docker.io/library/alpine:3.21
+RUN apk add --no-cache ca-certificates mailcap
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+USER 1000
+ENTRYPOINT ["caddy"]
+CMD ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

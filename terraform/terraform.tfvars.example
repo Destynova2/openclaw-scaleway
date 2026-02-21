@@ -1,0 +1,56 @@
+# OpenClaw — Variables de configuration
+# Copier ce fichier vers terraform.tfvars et remplir les valeurs.
+# Ce fichier est gitignore (ne JAMAIS commiter terraform.tfvars).
+
+# --- Scaleway (requis) ---
+scw_access_key      = ""  # Access Key admin (SCW...)
+scw_secret_key      = ""  # Secret Key admin (UUID)
+scw_organization_id = ""  # ID de l'organisation Scaleway
+
+# --- Admin (requis) ---
+admin_ip_cidr = ""  # IP admin pour SSH (format CIDR, ex: 203.0.113.42/32)
+admin_email   = ""  # Email autorise dans Pomerium (ex: admin@example.com)
+
+# --- Domaine (requis) ---
+domain_name = ""  # Nom de domaine (ex: example.com)
+
+# --- OpenClaw (requis) ---
+openclaw_version = ""  # Version semver (ex: 1.2.3)
+
+# --- Pomerium (requis) ---
+pomerium_idp_client_id     = ""  # GitHub OAuth App Client ID
+pomerium_idp_client_secret = ""  # GitHub OAuth App Client Secret
+# pomerium_version         = "v0.32.0"   # (optionnel, defaut: v0.32.0)
+
+# --- GitHub CI/CD (requis pour le bootstrap CI-ready) ---
+github_token      = ""  # PAT GitHub (scope: repo)
+github_owner      = ""  # GitHub user ou org
+github_repository = ""  # Nom du repo
+
+# --- Chiffrement state ---
+# NE PAS remplir : auto-genere par le bootstrap dans encryption.auto.tfvars
+
+# --- Kill switch (optionnel) ---
+# killswitch_budget_eur = 15  # Seuil de poweroff (defaut: 15 EUR, min: 13 EUR)
+                               # Alerte email a (budget - 3) EUR
+
+# --- Optionnel ---
+# state_project_id        = ""  # Si le bucket S3 est dans un projet different
+# brave_search_api_key    = ""  # Cle API Brave Search
+# telegram_bot_token      = ""  # Token bot Telegram (@BotFather)
+# telegram_chat_id        = ""  # Chat ID Telegram (voir @userinfobot)
+# github_agent_token      = ""  # Fine-grained PAT pour l'agent (repos prives)
+# chrome_headless_version = "stable"
+
+# --- Domaine (optionnel, mettre null pour ne pas acheter le domaine) ---
+# domain_owner_contact = {
+#   legal_form     = "individual"
+#   firstname      = "Prenom"
+#   lastname       = "Nom"
+#   email          = "admin@example.com"
+#   phone_number   = "+33.612345678"
+#   address_line_1 = "1 rue Example"
+#   zip            = "75001"
+#   city           = "Paris"
+#   country        = "FR"
+# }

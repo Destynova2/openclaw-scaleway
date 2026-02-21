@@ -1,0 +1,45 @@
+name: Build OpenClaw Image
+
+on:
+  push:
+    branches: [main]
+    paths: ['containers/Containerfile.openclaw', 'containers/.trivyignore']
+  workflow_dispatch:
+
+concurrency:
+  group: build-openclaw
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_ENDPOINT: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
+  IMAGE_NAME: openclaw-tools
+
+jobs:
+  build-push:
+    name: Build & Push OpenClaw Tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Login to Scaleway Container Registry
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "$REGISTRY_ENDPOINT" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Build image
+        run: docker build -t "$REGISTRY_ENDPOINT/$IMAGE_NAME:latest" -f containers/Containerfile.openclaw containers/
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ env.REGISTRY_ENDPOINT }}/${{ env.IMAGE_NAME }}:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+          trivyignores: 'containers/.trivyignore'
+
+      - name: Push image
+        run: docker push "$REGISTRY_ENDPOINT/$IMAGE_NAME:latest"

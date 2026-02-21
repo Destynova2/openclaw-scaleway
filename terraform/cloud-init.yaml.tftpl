@@ -1,0 +1,1117 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+# FQDN avec domaine pour satisfaire NAME-4028
+fqdn: openclaw-agent.${domain_name}
+manage_etc_hosts: true
+
+packages:
+  - podman
+  - fail2ban
+  - dnsmasq
+  - unattended-upgrades
+  - apt-listchanges
+  - aide
+  - auditd
+  - restic
+  - nftables
+  - git
+  - libpam-tmpdir
+  - libpam-pwquality
+  - debsums
+  - sysstat
+  - acct
+  - rkhunter
+  - apt-show-versions
+
+users:
+  - default
+  - name: openclaw
+    shell: /usr/sbin/nologin
+    lock_passwd: true
+
+swap:
+  filename: /swapfile
+  size: 1073741824
+  maxsize: 1073741824
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+      MaxAuthTries 3
+      MaxSessions 2
+      AllowTcpForwarding no
+      X11Forwarding no
+      AllowAgentForwarding no
+      ClientAliveCountMax 2
+      TCPKeepAlive no
+      LogLevel VERBOSE
+
+  - path: /etc/fail2ban/jail.d/sshd.conf
+    content: |
+      [sshd]
+      enabled = true
+      mode = aggressive
+      maxretry = 3
+      bantime = 3600
+      findtime = 600
+
+  # --- DNS monitoring (dnsmasq log-queries + alerte Telegram) ---
+  - path: /etc/dnsmasq.d/dns-monitor.conf
+    content: |
+      # Log toutes les requetes DNS pour detection d'anomalies.
+      log-queries
+      log-facility=/var/log/dnsmasq-queries.log
+      # Cache local (accelere les requetes repetees)
+      cache-size=500
+      # Ecoute uniquement en local
+      listen-address=127.0.0.1
+      bind-interfaces
+
+  - path: /etc/logrotate.d/dnsmasq-queries
+    content: |
+      /var/log/dnsmasq-queries.log {
+        daily
+        rotate 7
+        compress
+        missingok
+        notifempty
+        postrotate
+          systemctl restart dnsmasq
+        endscript
+      }
+
+  - path: /usr/local/bin/dns-monitor.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # dns-monitor.sh — detecte les anomalies DNS et alerte via Telegram.
+      # Execute toutes les 10 minutes via cron.
+      set -euo pipefail
+
+      LOG="/var/log/dnsmasq-queries.log"
+      STATE="/var/lib/dns-monitor"
+      SEEN="$STATE/seen-domains.txt"
+      ALERT_LOG="$STATE/alerts.log"
+      TELEGRAM_TOKEN="${telegram_bot_token}"
+      TELEGRAM_CHAT_ID="${telegram_chat_id}"
+      THRESHOLD_NEW=20       # Alerte si > 20 nouveaux domaines en 10 min
+      THRESHOLD_ENTROPY=3.5  # Seuil entropie pour detecter DNS tunneling
+
+      mkdir -p "$STATE"
+      touch "$SEEN"
+
+      [ -f "$LOG" ] || exit 0
+
+      # Extraire les domaines des 10 dernieres minutes
+      RECENT=$(tail -5000 "$LOG" | grep -oP 'query\[\w+\] \K[^ ]+' | sort -u || true)
+      [ -z "$RECENT" ] && exit 0
+
+      # Trouver les nouveaux domaines (jamais vus)
+      NEW=$(comm -23 <(echo "$RECENT") <(sort "$SEEN") || true)
+      NEW_COUNT=$(echo "$NEW" | grep -c . || true)
+
+      # Ajouter les domaines vus
+      echo "$RECENT" >> "$SEEN"
+      sort -u -o "$SEEN" "$SEEN"
+
+      # Fonction : entropie Shannon d'une chaine
+      entropy() {
+        echo "$1" | fold -w1 | sort | uniq -c | awk -v len="$${#1}" '
+          { p = $1/len; e -= p * log(p)/log(2) } END { printf "%.2f\n", e }'
+      }
+
+      ALERTS=""
+
+      # Detection 1 : burst de nouveaux domaines
+      if [ "$NEW_COUNT" -gt "$THRESHOLD_NEW" ]; then
+        ALERTS="$ALERTS\n- Burst: $NEW_COUNT nouveaux domaines en 10 min"
+      fi
+
+      # Detection 2 : sous-domaines haute entropie (DNS tunneling)
+      while IFS= read -r domain; do
+        [ -z "$domain" ] && continue
+        subdomain=$(echo "$domain" | awk -F. '{print $1}')
+        if [ "$${#subdomain}" -gt 20 ]; then
+          e=$(entropy "$subdomain")
+          if awk "BEGIN{exit !($e > $THRESHOLD_ENTROPY)}"; then
+            ALERTS="$ALERTS\n- DNS tunnel suspect: $domain (entropie=$e)"
+          fi
+        fi
+      done <<< "$NEW"
+
+      # Envoyer alerte Telegram si necessaire
+      if [ -n "$ALERTS" ] && [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+        MSG=$(printf "\xF0\x9F\x94\x8D dns-monitor: anomalie detectee\n$ALERTS")
+        curl -sf -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="$MSG" > /dev/null 2>&1 || true
+        echo "$(date -Is) $ALERTS" >> "$ALERT_LOG"
+      fi
+
+  - path: /etc/cron.d/dns-monitor
+    content: |
+      */10 * * * * root /usr/local/bin/dns-monitor.sh
+
+  - path: /etc/sysctl.d/99-hardening.conf
+    content: |
+      # Ports non-privilegies pour Podman rootless (Caddy :80/:443)
+      net.ipv4.ip_unprivileged_port_start=80
+      # SYN flood protection
+      net.ipv4.tcp_syncookies=1
+      net.ipv4.tcp_max_syn_backlog=2048
+      net.ipv4.tcp_synack_retries=2
+      # Anti-spoofing (reverse path filtering)
+      net.ipv4.conf.all.rp_filter=1
+      net.ipv4.conf.default.rp_filter=1
+      # Ignore ICMP redirects (MITM protection)
+      net.ipv4.conf.all.accept_redirects=0
+      net.ipv4.conf.default.accept_redirects=0
+      net.ipv4.conf.all.send_redirects=0
+      net.ipv6.conf.all.accept_redirects=0
+      net.ipv6.conf.default.accept_redirects=0
+      # Disable source routing
+      net.ipv4.conf.all.accept_source_route=0
+      net.ipv4.conf.default.accept_source_route=0
+      # Log martian packets (spoofed addresses)
+      net.ipv4.conf.all.log_martians=1
+      net.ipv4.conf.default.log_martians=1
+      # Restrict dmesg access to root
+      kernel.dmesg_restrict=1
+      # Hide kernel pointers from non-root
+      kernel.kptr_restrict=2
+      # Restrict ptrace (anti-debug)
+      kernel.yama.ptrace_scope=2
+      # Disable TTY line discipline autoload
+      dev.tty.ldisc_autoload=0
+      # Protect FIFOs in world-writable dirs
+      fs.protected_fifos=2
+      # Disable core dumps for setuid programs
+      fs.suid_dumpable=0
+      # Include PID in core dump filenames
+      kernel.core_uses_pid=1
+      # Restrict perf_event access
+      kernel.perf_event_paranoid=3
+      # Disable SysRq key
+      kernel.sysrq=0
+      # Disable unprivileged BPF
+      kernel.unprivileged_bpf_disabled=1
+      # Harden BPF JIT compiler
+      net.core.bpf_jit_harden=2
+
+  # --- Legal banners (BANN-7126, BANN-7130) ---
+  - path: /etc/issue
+    content: |
+
+      ***WARNING*** Unauthorized access to this system is prohibited.
+      All connections are monitored and recorded.
+      Disconnect IMMEDIATELY if you are not an authorized user.
+
+  - path: /etc/issue.net
+    content: |
+
+      ***WARNING*** Unauthorized access to this system is prohibited.
+      All connections are monitored and recorded.
+      Disconnect IMMEDIATELY if you are not an authorized user.
+
+
+  # --- Disable unused network protocols (NETW-3200) ---
+  - path: /etc/modprobe.d/disable-protocols.conf
+    content: |
+      install dccp /bin/true
+      install sctp /bin/true
+      install rds /bin/true
+      install tipc /bin/true
+
+  # --- Disable USB storage (USB-1000) ---
+  - path: /etc/modprobe.d/disable-usb-storage.conf
+    content: |
+      install usb-storage /bin/true
+
+  # --- Core dump limits (KRNL-5820) ---
+  - path: /etc/security/limits.d/99-coredump.conf
+    content: |
+      * hard core 0
+      * soft core 0
+
+  # --- Unattended upgrades (patches secu auto) ---
+  - path: /etc/apt/apt.conf.d/50unattended-upgrades
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+        "$${distro_id}:$${distro_codename}-security";
+        "$${distro_id}ESMApps:$${distro_codename}-apps-security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+  # --- auditd (forensics — log sudo, SSH, fichiers critiques) ---
+  - path: /etc/audit/rules.d/openclaw.rules
+    content: |
+      # Surveillance des elevations de privileges
+      -w /etc/sudoers -p wa -k sudoers
+      -w /etc/sudoers.d/ -p wa -k sudoers
+      # Modifications de comptes
+      -w /etc/passwd -p wa -k accounts
+      -w /etc/shadow -p wa -k accounts
+      -w /etc/group -p wa -k accounts
+      # Config SSH
+      -w /etc/ssh/sshd_config -p wa -k sshd
+      -w /etc/ssh/sshd_config.d/ -p wa -k sshd
+      # Binaires critiques
+      -w /usr/bin/podman -p x -k containers
+      -w /usr/bin/curl -p x -k network_tools
+      -w /usr/bin/wget -p x -k network_tools
+      # Cloud-init secrets (ne devrait plus exister apres cleanup)
+      -w /var/lib/cloud/ -p r -k cloud_secrets
+
+  # --- AIDE (file integrity monitoring) ---
+  - path: /etc/aide/aide.conf.d/99-openclaw.conf
+    content: |
+      # Surveiller les binaires et configs critiques
+      /usr/bin NORMAL
+      /usr/sbin NORMAL
+      /etc/ssh NORMAL
+      /etc/sudoers NORMAL
+      /etc/cron.d NORMAL
+      /etc/systemd NORMAL
+      # Exclure les fichiers a forte rotation
+      !/var/log
+      !/var/lib/cloud
+      !/tmp
+      !/home/openclaw/cache
+      !/home/openclaw/caddy-data
+
+  - path: /etc/cron.d/aide-check
+    content: |
+      0 3 * * * root /usr/local/bin/aide-check.sh
+
+  - path: /usr/local/bin/aide-check.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      OUT=$(aide --check 2>&1 || true)
+      CHANGES=$(echo "$OUT" | grep -cE '(changed|added|removed):' || true)
+      if [ "$CHANGES" -gt 0 ]; then
+        MSG=$(printf "\xF0\x9F\x94\x93 AIDE: $CHANGES fichiers modifies\n$(echo "$OUT" | head -20)")
+        if [ -n "${telegram_bot_token}" ] && [ -n "${telegram_chat_id}" ]; then
+          curl -sf -X POST "https://api.telegram.org/bot${telegram_bot_token}/sendMessage" \
+            -d chat_id="${telegram_chat_id}" -d text="$MSG" > /dev/null 2>&1 || true
+        fi
+        echo "$OUT" >> /var/log/aide-changes.log
+      fi
+
+%{ if backup_bucket != "" }
+  # --- restic backups (chiffre vers S3, retention 7j/4w/12m) ---
+  - path: /usr/local/bin/backup.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      export RESTIC_REPOSITORY="s3:https://s3.fr-par.scw.cloud/${backup_bucket}/openclaw"
+      export RESTIC_PASSWORD="${backup_password}"
+      export AWS_ACCESS_KEY_ID="${backup_access_key}"
+      export AWS_SECRET_ACCESS_KEY="${backup_secret_key}"
+
+      # Backup configs + donnees openclaw
+      restic backup \
+        /home/openclaw/config \
+        /home/openclaw/caddy \
+        /etc/ssh/sshd_config.d \
+        /etc/audit/rules.d \
+        --exclude-caches \
+        --tag openclaw
+
+      # Retention : 7 daily, 4 weekly, 12 monthly
+      restic forget --prune \
+        --keep-daily 7 \
+        --keep-weekly 4 \
+        --keep-monthly 12
+
+      # Alerte Telegram
+      SNAPS=$(restic snapshots --json | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "?")
+      if [ -n "${telegram_bot_token}" ] && [ -n "${telegram_chat_id}" ]; then
+        curl -sf -X POST "https://api.telegram.org/bot${telegram_bot_token}/sendMessage" \
+          -d chat_id="${telegram_chat_id}" \
+          -d text="$(printf '\xe2\x9c\x85') backup OK ($SNAPS snapshots)" > /dev/null 2>&1 || true
+      fi
+
+  - path: /etc/cron.d/restic-backup
+    content: |
+      0 2 * * * root /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1
+%{ endif }
+
+  # --- lynis (audit securite host, hebdomadaire) ---
+  - path: /usr/local/bin/lynis-audit.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      /opt/lynis/lynis audit system --no-colors --quiet > /var/log/lynis-report.txt 2>&1 || true
+      SCORE=$(grep 'Hardening index' /var/log/lynis-report.txt | grep -oP '\d+' | head -1 || echo "?")
+      WARNINGS=$(grep -c 'Warning' /var/log/lynis-report.txt || true)
+      if [ -n "${telegram_bot_token}" ] && [ -n "${telegram_chat_id}" ]; then
+        curl -sf -X POST "https://api.telegram.org/bot${telegram_bot_token}/sendMessage" \
+          -d chat_id="${telegram_chat_id}" \
+          -d text="$(printf '\xF0\x9F\x94\x8D') lynis: score=$SCORE, warnings=$WARNINGS" > /dev/null 2>&1 || true
+      fi
+
+  - path: /etc/cron.d/lynis-audit
+    content: |
+      0 5 * * 0 root /usr/local/bin/lynis-audit.sh
+
+  # --- trivy (scan vulnerabilites containers, hebdomadaire) ---
+  - path: /usr/local/bin/trivy-scan.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      REPORT=""
+      # Scanner tous les containers du pod openclaw
+      for img in $(sudo -u openclaw XDG_RUNTIME_DIR=/run/user/1000 podman images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -v '<none>'); do
+        VULNS=$(trivy image --severity HIGH,CRITICAL --quiet --format json "$img" 2>/dev/null \
+          | python3 -c "import sys,json; r=json.load(sys.stdin).get('Results',[]); print(sum(len(v.get('Vulnerabilities',[])) for v in r))" 2>/dev/null || echo "?")
+        REPORT="$REPORT\n$img: $VULNS vulns (HIGH+CRITICAL)"
+      done
+      # CIS benchmark sur les containers
+      CIS=$(trivy fs --security-checks config --quiet /home/openclaw 2>/dev/null | grep -c 'FAIL' || true)
+      REPORT="$REPORT\nCIS config checks: $CIS failures"
+      if [ -n "${telegram_bot_token}" ] && [ -n "${telegram_chat_id}" ]; then
+        MSG=$(printf "\xF0\x9F\x90\xB3 trivy scan:\n$REPORT")
+        curl -sf -X POST "https://api.telegram.org/bot${telegram_bot_token}/sendMessage" \
+          -d chat_id="${telegram_chat_id}" -d text="$MSG" > /dev/null 2>&1 || true
+      fi
+      echo -e "$(date -Is)\n$REPORT" >> /var/log/trivy-scan.log
+
+  - path: /etc/cron.d/trivy-scan
+    content: |
+      0 5 * * 1 root /usr/local/bin/trivy-scan.sh
+
+%{ if cockpit_logs_push_url != "" }
+  # --- Grafana Alloy (log forwarding vers Scaleway Cockpit / Loki) ---
+  - path: /etc/alloy/config.alloy
+    content: |
+      // Relabel journal fields as Loki labels
+      loki.relabel "journal" {
+        forward_to = []
+        rule {
+          source_labels = ["__journal__systemd_unit"]
+          target_label  = "unit"
+        }
+        rule {
+          source_labels = ["__journal__hostname"]
+          target_label  = "hostname"
+        }
+        rule {
+          source_labels = ["__journal_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__journal_priority"]
+          target_label  = "priority"
+        }
+      }
+
+      // Read systemd journal (includes Podman container logs)
+      loki.source.journal "main" {
+        forward_to    = [loki.write.cockpit.receiver]
+        relabel_rules = loki.relabel.journal.rules
+        labels        = {instance = "openclaw-dev1s", job = "journal"}
+        path          = "/var/log/journal"
+        max_age       = "12h"
+      }
+
+      // Push logs to Scaleway Cockpit Loki endpoint
+      loki.write "cockpit" {
+        endpoint {
+          url          = "${cockpit_logs_push_url}/loki/api/v1/push"
+          bearer_token = "${cockpit_token}"
+        }
+      }
+%{ endif }
+
+  # --- lynis custom profile (skip false positives for IaC infra) ---
+  - path: /etc/lynis/custom.prf
+    content: |
+      skip-test=FIRE-4513
+      skip-test=LOGG-2190
+      skip-test=TOOL-5002
+
+  # --- nftables firewall (FIRE-4512) ---
+  - path: /etc/nftables.conf
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      table inet filter {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          ct state established,related accept
+          iif "lo" accept
+          ip protocol icmp accept
+          ip6 nexthdr icmpv6 accept
+          tcp dport 22 accept
+          tcp dport { 80, 443 } accept
+          tcp dport 3000 accept
+        }
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+        }
+        chain output {
+          type filter hook output priority filter; policy accept;
+        }
+      }
+
+  # --- Systemd service hardening (BOOT-5264) ---
+  - path: /etc/systemd/system/fail2ban.service.d/hardening.conf
+    content: |
+      [Service]
+      ProtectSystem=strict
+      ProtectHome=yes
+      PrivateTmp=yes
+      NoNewPrivileges=yes
+      ProtectKernelModules=yes
+      ProtectKernelTunables=yes
+      ProtectKernelLogs=yes
+      ProtectControlGroups=yes
+      RestrictSUIDSGID=yes
+      ReadWritePaths=/var/lib/fail2ban /var/run/fail2ban /var/log
+
+  - path: /etc/systemd/system/networkd-dispatcher.service.d/hardening.conf
+    content: |
+      [Service]
+      ProtectSystem=strict
+      ProtectHome=yes
+      PrivateTmp=yes
+      NoNewPrivileges=yes
+      ProtectKernelModules=yes
+      ProtectKernelTunables=yes
+      ProtectKernelLogs=yes
+      ProtectControlGroups=yes
+      RestrictSUIDSGID=yes
+
+  - path: /etc/systemd/system/unattended-upgrades.service.d/hardening.conf
+    content: |
+      [Service]
+      ProtectHome=yes
+      PrivateTmp=yes
+      NoNewPrivileges=yes
+      ProtectKernelModules=yes
+      ProtectKernelTunables=yes
+      ProtectKernelLogs=yes
+      ProtectControlGroups=yes
+      RestrictSUIDSGID=yes
+
+  - path: /etc/systemd/system/cron.service.d/hardening.conf
+    content: |
+      [Service]
+      ProtectHome=read-only
+      PrivateTmp=yes
+      ProtectKernelModules=yes
+      ProtectKernelTunables=yes
+      ProtectKernelLogs=yes
+      ProtectControlGroups=yes
+
+  # owner defini dans runcmd (le user openclaw n'existe pas encore a cette etape)
+  - path: /home/openclaw/caddy/Caddyfile
+    content: |
+      # Pomerium -> OpenClaw (via private network port 3000)
+      # Port 3000 accessible uniquement via le private network (Pomerium)
+      # donc toute requete ici est deja authentifiee par Pomerium SSO.
+      #
+      # Mode token : Caddy injecte le token gateway dans l'URL pour le Control UI.
+      # Les WebSocket upgrades passent directement (token deja dans l'URL initiale).
+      :3000 {
+        @needsToken {
+          path /
+          not query token=*
+          not header Connection *Upgrade*
+        }
+        redir @needsToken /?token=${gateway_token}
+        reverse_proxy localhost:18789 {
+          header_up Host localhost
+        }
+      }
+
+      # Webhooks publics (HTTPS, rate limited)
+      webhooks.${domain_name} {
+        rate_limit {
+          zone webhooks {
+            key {remote_host}
+            events 30
+            window 1m
+          }
+        }
+        reverse_proxy localhost:18789
+      }
+
+  # SOUL.md — personnalite et langue de l'agent (injecte dans le system prompt)
+  - path: /home/openclaw/config/workspace/SOUL.md
+    content: |
+      # Langue
+
+      - Reponds toujours en francais.
+      - Utilise un francais naturel et conversationnel, pas de traduction litterale.
+      - Les termes techniques courants peuvent rester en anglais (API, container, commit, etc.).
+
+      # Personnalite
+
+      - Sois direct et concis. Pas de formules creuses ni de politesse excessive.
+      - Quand tu ne sais pas, dis-le clairement plutot que d'inventer.
+      - Adapte le niveau de detail a la question : reponse courte pour une question simple, developpee pour un sujet complexe.
+      - Propose des alternatives quand c'est pertinent, sans noyer l'utilisateur sous les options.
+
+      # Contexte
+
+      - Tu es un assistant personnel et technique.
+      - Tu peux aider sur du code, de l'infra, de la redaction, de la recherche, et des taches du quotidien.
+      - Privilegies toujours les solutions simples et pragmatiques.
+
+      # Outils disponibles
+
+      ## GitHub CLI (gh)
+      Tu as `gh` installe et authentifie. Utilise-le pour acceder aux repos GitHub (publics ET prives) :
+      - `gh repo view owner/repo` — voir les infos d'un repo
+      - `gh repo clone owner/repo` — cloner un repo
+      - `gh api repos/owner/repo/contents/path` — lire le contenu d'un fichier
+      - `gh issue list -R owner/repo` — lister les issues
+      - `gh pr list -R owner/repo` — lister les PRs
+
+      **IMPORTANT** : pour acceder a un repo GitHub, utilise TOUJOURS `gh` (pas `web_fetch`). `web_fetch` ne peut pas acceder aux repos prives.
+
+      # Modeles disponibles
+
+      Tu tournes par defaut sur Mistral Small (rapide, pas cher). Quand une tache depasse ses capacites, recommande de switcher avec la commande appropriee. Ne switche pas pour rien — le budget API est limite.
+
+      | Commande | Modele | Quand recommander |
+      |----------|--------|-------------------|
+      | `/mistral` | Mistral Small 3.2 24B | **Defaut.** Chat, questions simples, taches courantes. Rapide et pas cher. |
+      | `/devstral` | Devstral 2 123B | **Code complexe.** Refactoring, debug difficile, generation de code multi-fichiers, revue de PR. |
+      | `/qwen-235b` | Qwen3 235B | **Raisonnement long.** Analyse approfondie, planification, synthese de documents complexes. |
+      | `/deepseek` | DeepSeek R1 70B | **Maths et logique.** Calculs, raisonnement formel, puzzles, preuves. |
+      | `/gpt` | GPT-OSS 120B | **Generaliste costaud.** Bon compromis qualite/prix quand Mistral manque de profondeur. |
+      | `/llama-70b` | Llama 3.3 70B | **Alternative generaliste.** Redaction longue, creative writing, brainstorming. |
+      | `/code` | Qwen3 Coder 30B | **Code economique.** Scripts simples, corrections rapides, snippets. |
+      | `/holo` | Holo2 30B | **Generaliste moyen.** Conversations, Q&A, quand Mistral suffit pas mais qu'on veut pas monter trop haut. |
+      | `/gemma` | Gemma 3 27B | **Vision + texte.** Analyse d'images, screenshots, OCR, diagrammes. |
+      | `/pixtral` | Pixtral 12B | **Vision pas chere.** Description d'images simples, lecture de captures d'ecran. |
+      | `/nemo` | Mistral Nemo 12B | **Ultra-rapide.** Taches triviales, reformulation, traduction courte. |
+      | `/voxtral` | Voxtral Small 24B | **Audio.** Transcription et analyse de fichiers audio. |
+      | `/llama` | Llama 3.1 8B | **Sous-taches.** Reserve aux sous-agents, le moins cher. |
+
+      Exemples de recommandation :
+      - "Ce refactoring est complexe, je te recommande `/devstral` pour ca."
+      - "C'est un calcul mathematique, `/deepseek` serait plus fiable."
+      - "Pour analyser cette image, passe en `/gemma`."
+
+      Ne recommande un switch que si c'est vraiment necessaire. Pour 80% des taches, Mistral Small suffit.
+
+  # Fichier DOIT s'appeler openclaw.json (pas config.json5)
+  # cf. /app/src/config/paths.ts → CONFIG_FILENAME = "openclaw.json"
+  - path: /home/openclaw/config/openclaw.json
+    permissions: "0600"
+    content: |
+      {
+        "models": {
+          "providers": {
+            "scaleway": {
+              "baseUrl": "http://127.0.0.1:8081/v1",
+              "apiKey": "${scw_api_key}",
+              "api": "openai-completions",
+              "models": [
+                {"id": "mistral-small-3.2-24b-instruct-2506", "name": "Mistral Small 3.2 24B", "reasoning": false, "input": ["text", "image"], "cost": {"input": 0.15, "output": 0.35, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "devstral-2-123b-instruct-2512", "name": "Devstral 2 123B", "reasoning": false, "input": ["text"], "cost": {"input": 0.40, "output": 2.00, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "qwen3-235b-a22b-instruct-2507", "name": "Qwen3 235B", "reasoning": true, "input": ["text"], "cost": {"input": 0.75, "output": 2.25, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "deepseek-r1-distill-llama-70b", "name": "DeepSeek R1 70B", "reasoning": true, "input": ["text"], "cost": {"input": 0.90, "output": 0.90, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "gpt-oss-120b", "name": "GPT-OSS 120B", "reasoning": false, "input": ["text"], "cost": {"input": 0.15, "output": 0.60, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "llama-3.3-70b-instruct", "name": "Llama 3.3 70B", "reasoning": false, "input": ["text"], "cost": {"input": 0.90, "output": 0.90, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "qwen3-coder-30b-a3b-instruct", "name": "Qwen3 Coder 30B", "reasoning": false, "input": ["text"], "cost": {"input": 0.20, "output": 0.80, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "holo2-30b-a3b", "name": "Holo2 30B", "reasoning": false, "input": ["text"], "cost": {"input": 0.30, "output": 0.70, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "gemma-3-27b-it", "name": "Gemma 3 27B", "reasoning": false, "input": ["text", "image"], "cost": {"input": 0.25, "output": 0.50, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "pixtral-12b-2409", "name": "Pixtral 12B", "reasoning": false, "input": ["text", "image"], "cost": {"input": 0.20, "output": 0.20, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "mistral-nemo-instruct-2407", "name": "Mistral Nemo 12B", "reasoning": false, "input": ["text"], "cost": {"input": 0.20, "output": 0.20, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "voxtral-small-24b-2507", "name": "Voxtral Small 24B", "reasoning": false, "input": ["text"], "cost": {"input": 0.15, "output": 0.35, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+                {"id": "llama-3.1-8b-instruct", "name": "Llama 3.1 8B", "reasoning": false, "input": ["text"], "cost": {"input": 0.20, "output": 0.20, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192}
+              ]
+            }
+          }
+        },
+        "agents": {
+          "defaults": {
+            "model": {
+              "primary": "scaleway/gpt-oss-120b",
+              "fallbacks": ["scaleway/mistral-small-3.2-24b-instruct-2506", "scaleway/llama-3.1-8b-instruct"]
+            },
+            "models": {
+              "scaleway/mistral-small-3.2-24b-instruct-2506": {"alias": "mistral"},
+              "scaleway/devstral-2-123b-instruct-2512": {"alias": "devstral"},
+              "scaleway/qwen3-235b-a22b-instruct-2507": {"alias": "qwen-235b"},
+              "scaleway/deepseek-r1-distill-llama-70b": {"alias": "deepseek"},
+              "scaleway/gpt-oss-120b": {"alias": "gpt"},
+              "scaleway/llama-3.3-70b-instruct": {"alias": "llama-70b"},
+              "scaleway/qwen3-coder-30b-a3b-instruct": {"alias": "code"},
+              "scaleway/holo2-30b-a3b": {"alias": "holo"},
+              "scaleway/gemma-3-27b-it": {"alias": "gemma"},
+              "scaleway/pixtral-12b-2409": {"alias": "pixtral"},
+              "scaleway/mistral-nemo-instruct-2407": {"alias": "nemo"},
+              "scaleway/voxtral-small-24b-2507": {"alias": "voxtral"},
+              "scaleway/llama-3.1-8b-instruct": {"alias": "llama"}
+            },
+            "subagents": {
+              "model": "scaleway/llama-3.1-8b-instruct"
+            },
+            "compaction": {"mode": "safeguard"},
+            "memorySearch": {
+              "enabled": true,
+              "provider": "openai",
+              "model": "bge-multilingual-gemma2",
+              "remote": {
+                "baseUrl": "http://127.0.0.1:8081/v1",
+                "headers": {
+                  "Authorization": "Bearer ${scw_api_key}"
+                }
+              },
+              "sources": ["memory", "sessions"],
+              "query": {
+                "hybrid": {
+                  "enabled": true,
+                  "vectorWeight": 0.7,
+                  "textWeight": 0.3
+                }
+              }
+            }
+          }
+        },
+        "tools": {
+          "web": {
+            "search": {
+              "enabled": true,
+              "provider": "brave",
+              "apiKey": "${brave_search_api_key}"
+            }
+          },
+          "media": {
+            "audio": {
+              "enabled": true,
+              "maxBytes": 20971520,
+              "models": [
+                {"provider": "openai", "model": "whisper-large-v3"}
+              ]
+            }
+          }
+        },
+        "commands": {"native": "auto", "nativeSkills": "auto"},
+        "messages": {
+          "tts": {
+            "auto": "always",
+            "provider": "edge",
+            "edge": {
+              "voice": "fr-FR-HenriNeural"
+            }
+          }
+        },
+        "gateway": {
+          "bind": "lan",
+          "controlUi": {
+            "allowedOrigins": ["https://app.${domain_name}"]
+          },
+          "auth": {
+            "mode": "token",
+            "token": "${gateway_token}"
+          },
+          "nodes": {
+            "browser": {
+              "mode": "auto"
+            }
+          }
+        },
+        "channels": {
+          "telegram": {
+            "enabled": true,
+            "botToken": "${telegram_bot_token}"
+          }
+        },
+        "browser": {
+          "enabled": true,
+          "headless": true,
+          "defaultProfile": "chrome",
+          "profiles": {
+            "chrome": {
+              "cdpUrl": "http://127.0.0.1:9222",
+              "color": "#4285F4"
+            }
+          }
+        },
+        "plugins": {
+          "entries": {
+            "telegram": {
+              "enabled": true
+            }
+          }
+        }
+      }
+
+  - path: /home/openclaw/kube.yml
+    content: |
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: openclaw
+        labels:
+          app: openclaw
+      spec:
+        securityContext:
+          seccompProfile:
+            type: RuntimeDefault
+          runAsUser: 1000
+          runAsGroup: 1000
+          sysctls:
+            - name: net.ipv4.ip_unprivileged_port_start
+              value: "80"
+        containers:
+          - name: openclaw
+            image: ${registry_endpoint}/openclaw-tools:latest
+            ports:
+              - containerPort: 18789
+            env:
+              - name: PATH
+                value: "/home/node/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+              - name: NPM_CONFIG_PREFIX
+                value: "/home/node/.local"
+              - name: PIP_USER
+                value: "1"
+              - name: PYTHONUSERBASE
+                value: "/home/node/.local"
+              - name: NPM_CONFIG_CACHE
+                value: "/home/node/.local/.npm-cache"
+              - name: GH_TOKEN
+                value: "${github_agent_token}"
+              - name: OPENAI_API_KEY
+                value: "${scw_api_key}"
+              - name: OPENAI_BASE_URL
+                value: "http://127.0.0.1:8081/v1"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            livenessProbe:
+              tcpSocket:
+                port: 18789
+              initialDelaySeconds: 15
+              periodSeconds: 30
+            readinessProbe:
+              tcpSocket:
+                port: 18789
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            volumeMounts:
+              - name: openclaw-config
+                mountPath: /home/node/.openclaw
+              - name: openclaw-local
+                mountPath: /home/node/.local
+              - name: openclaw-cache
+                mountPath: /home/node/.cache
+              - name: tmp-openclaw
+                mountPath: /tmp
+            resources:
+              limits:
+                memory: "2Gi"
+                cpu: "2"
+
+          # Chrome headless pour le browser agent (CDP sur localhost:9222)
+          # Image ultra-legere (~100 Mo) dediee au Chrome DevTools Protocol
+          - name: chrome
+            image: docker.io/chromedp/headless-shell:${chrome_headless_version}
+            ports:
+              - containerPort: 9222
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            livenessProbe:
+              httpGet:
+                path: /json/version
+                port: 9222
+              initialDelaySeconds: 5
+              periodSeconds: 30
+            readinessProbe:
+              httpGet:
+                path: /json/version
+                port: 9222
+              initialDelaySeconds: 3
+              periodSeconds: 10
+            volumeMounts:
+              - name: tmp-chrome
+                mountPath: /tmp
+              - name: chrome-data
+                mountPath: /headless-shell-data
+            resources:
+              limits:
+                memory: "512Mi"
+                cpu: "1"
+
+          # CLI OpenClaw — sidecar pour interagir avec le gateway en ligne de commande
+          # Usage : podman exec openclaw-cli openclaw gateway status --url ws://localhost:18789
+          - name: cli
+            image: ${registry_endpoint}/openclaw-cli:latest
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            volumeMounts:
+              - name: openclaw-config
+                mountPath: /home/node/.openclaw
+              - name: tmp-cli
+                mountPath: /tmp
+            resources:
+              limits:
+                memory: "128Mi"
+                cpu: "0.5"
+
+          # DLP proxy — scanne les prompts LLM pour bloquer les fuites de tokens.
+          # Binaire Rust statique (~5MB), FROM scratch, ~3MB RAM.
+          - name: token-guard
+            image: ${registry_endpoint}/token-guard:latest
+            env:
+              - name: UPSTREAM_URL
+                value: "https://api.scaleway.ai/${scw_project_id}/v1"
+              - name: LISTEN_ADDR
+                value: "127.0.0.1:8081"
+              - name: TELEGRAM_BOT_TOKEN
+                value: "${telegram_bot_token}"
+              - name: TELEGRAM_CHAT_ID
+                value: "${telegram_chat_id}"
+              - name: BLOCKED_TOKENS
+                value: "${blocked_tokens}"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            livenessProbe:
+              httpGet:
+                path: /healthz
+                port: 8081
+              initialDelaySeconds: 3
+              periodSeconds: 30
+            resources:
+              limits:
+                memory: "32Mi"
+                cpu: "0.25"
+
+          # Tag :latest intentionnel — image custom construite dans notre registre prive
+          # (Containerfile.caddy → build-caddy.yml → push vers ce registre).
+          # Le suivi de version se fait via Renovate sur xcaddy et caddy-ratelimit.
+          - name: caddy
+            image: ${registry_endpoint}/caddy-ratelimit:latest
+            ports:
+              - containerPort: 443
+                hostPort: 443
+              - containerPort: 80
+                hostPort: 80
+              - containerPort: 3000
+                hostPort: 3000
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            livenessProbe:
+              tcpSocket:
+                port: 80
+              initialDelaySeconds: 10
+              periodSeconds: 30
+            readinessProbe:
+              tcpSocket:
+                port: 80
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            volumeMounts:
+              - name: caddyfile
+                mountPath: /etc/caddy
+              - name: caddy-data
+                mountPath: /data
+              - name: caddy-config
+                mountPath: /config
+              - name: tmp-caddy
+                mountPath: /tmp
+            resources:
+              limits:
+                memory: "128Mi"
+                cpu: "1"
+
+        volumes:
+          - name: openclaw-config
+            hostPath:
+              path: /home/openclaw/config
+              type: Directory
+          - name: caddyfile
+            hostPath:
+              path: /home/openclaw/caddy
+              type: Directory
+          - name: caddy-data
+            hostPath:
+              path: /home/openclaw/caddy-data
+              type: DirectoryOrCreate
+          - name: caddy-config
+            hostPath:
+              path: /home/openclaw/caddy-config
+              type: DirectoryOrCreate
+          - name: openclaw-local
+            hostPath:
+              path: /home/openclaw/local
+              type: DirectoryOrCreate
+          - name: openclaw-cache
+            hostPath:
+              path: /home/openclaw/cache
+              type: DirectoryOrCreate
+          - name: tmp-openclaw
+            emptyDir:
+              medium: Memory
+          - name: tmp-caddy
+            emptyDir:
+              medium: Memory
+          - name: tmp-cli
+            emptyDir:
+              medium: Memory
+          - name: tmp-chrome
+            emptyDir:
+              medium: Memory
+          - name: chrome-data
+            emptyDir: {}
+
+  # Quadlet user-level (pas system-level) pour Podman rootless
+  - path: /home/openclaw/.config/containers/systemd/openclaw.kube
+    content: |
+      [Unit]
+      Description=OpenClaw Pod (openclaw + caddy)
+      After=network-online.target
+
+      [Kube]
+      Yaml=/home/openclaw/kube.yml
+      UserNS=keep-id
+
+      [Service]
+      TimeoutStartSec=600
+      Delegate=yes
+
+      [Install]
+      WantedBy=default.target
+
+  # Auth registre prive Scaleway pour podman pull
+  - path: /home/openclaw/.config/containers/auth.json
+    permissions: "0600"
+    content: |
+      {"auths":{"rg.fr-par.scw.cloud":{"auth":"${registry_auth_b64}"}}}
+
+runcmd:
+  - mkdir -p /home/openclaw/config/workspace
+  - mkdir -p /home/openclaw/local/bin /home/openclaw/local/lib /home/openclaw/local/.npm-cache
+  - chown -R openclaw:openclaw /home/openclaw
+  - loginctl enable-linger openclaw
+  - systemctl enable --now fail2ban
+  # DNS monitoring : dnsmasq comme resolver local avec log-queries
+  - |
+    # Sauvegarder les DNS upstream avant de rediriger vers dnsmasq
+    grep '^nameserver' /etc/resolv.conf | grep -v '127.0.0.1' | head -2 \
+      | sed 's/nameserver /server=/' > /etc/dnsmasq.d/upstream.conf
+    # Pointer le resolver local vers dnsmasq
+    sed -i 's/^nameserver .*/nameserver 127.0.0.1/' /etc/resolv.conf
+    systemctl enable --now dnsmasq
+  - sysctl --system
+  # nftables + iptables firewall (FIRE-4512)
+  - nft -f /etc/nftables.conf
+  - systemctl enable nftables
+  - iptables -P INPUT DROP
+  - iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  - iptables -A INPUT -i lo -j ACCEPT
+  - iptables -A INPUT -p icmp -j ACCEPT
+  - iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+  - iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+  - iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+  - iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
+  # Restrict compilers to root only (HRDN-7222)
+  - |
+    for f in /usr/bin/x86_64-linux-gnu-gcc-13 /usr/bin/x86_64-linux-gnu-g++-13 \
+             /usr/bin/x86_64-linux-gnu-cpp-13 /usr/bin/x86_64-linux-gnu-as \
+             /usr/bin/gcc /usr/bin/g++ /usr/bin/cpp /usr/bin/cc /usr/bin/as \
+             /usr/bin/gcc-13 /usr/bin/g++-13 /usr/bin/cpp-13; do
+      [ -e "$f" ] && chmod o-rx "$f" 2>/dev/null || true
+    done
+  # AIDE : use SHA512 checksums (FINT-4402)
+  - sed -i 's/^Checksums = H$/Checksums = sha512/' /etc/aide/aide.conf
+  # Postfix hardening (MAIL-8818, MAIL-8820)
+  - postconf -e 'smtpd_banner = $myhostname ESMTP'
+  - postconf -e 'disable_vrfy_command = yes'
+  - systemctl reload postfix || true
+  # umask 027 (AUTH-9328) + password hashing/aging (AUTH-9230, AUTH-9286)
+  - sed -i 's/^UMASK.*/UMASK 027/' /etc/login.defs
+  - sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS 1/' /etc/login.defs
+  - sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 365/' /etc/login.defs
+  - sed -i '/^# SHA_CRYPT_/d; /^SHA_CRYPT_/d' /etc/login.defs
+  - echo 'SHA_CRYPT_MIN_ROUNDS 5000' >> /etc/login.defs
+  - echo 'SHA_CRYPT_MAX_ROUNDS 10000' >> /etc/login.defs
+  # File permissions (FILE-7524)
+  - chmod 600 /etc/crontab
+  - chmod 700 /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly
+  - chmod 600 /etc/ssh/sshd_config
+  # Enable process accounting (ACCT-9622, ACCT-9626)
+  - sed -i 's/ENABLED="false"/ENABLED="true"/' /etc/default/sysstat || true
+  - systemctl enable --now sysstat || true
+  - systemctl enable --now acct || true
+  # fail2ban: copy jail.conf to jail.local (DEB-0880)
+  - cp -n /etc/fail2ban/jail.conf /etc/fail2ban/jail.local || true
+  # auditd + load custom rules (ACCT-9630)
+  - systemctl enable --now auditd
+  - augenrules --load || true
+  # AIDE : initialiser la base de reference
+  - aideinit || true
+  - cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db || true
+  # restic : initialiser le repo S3 (idempotent)
+  - |
+    if [ -n "${backup_bucket}" ]; then
+      export RESTIC_REPOSITORY="s3:https://s3.fr-par.scw.cloud/${backup_bucket}/openclaw"
+      export RESTIC_PASSWORD="${backup_password}"
+      export AWS_ACCESS_KEY_ID="${backup_access_key}"
+      export AWS_SECRET_ACCESS_KEY="${backup_secret_key}"
+      restic init 2>/dev/null || true
+    fi
+  # trivy : installer depuis le repo officiel
+  - |
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+%{ if cockpit_logs_push_url != "" }
+  # Grafana Alloy : log forwarding vers Scaleway Cockpit (LOGG-2154)
+  - |
+    curl -fsSL https://apt.grafana.com/gpg.key | gpg --no-default-keyring \
+      --keyring gnupg-ring:/usr/share/keyrings/grafana-archive-keyring.gpg --import 2>/dev/null
+    chmod 644 /usr/share/keyrings/grafana-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/grafana-archive-keyring.gpg] https://apt.grafana.com stable main" \
+      > /etc/apt/sources.list.d/grafana.list
+    apt-get update -qq && apt-get install -y -qq alloy
+    usermod -aG systemd-journal alloy
+    systemctl enable --now alloy
+%{ endif }
+  # lynis : installer depuis GitHub (version plus recente que le paquet Ubuntu)
+  - git clone https://github.com/CISOfy/lynis /opt/lynis
+  # Recharger systemd pour les drop-ins de hardening
+  - systemctl daemon-reload
+  - systemctl restart fail2ban || true
+  # Demarrer le service Quadlet user-level (pas system-level)
+  - sudo -u openclaw XDG_RUNTIME_DIR=/run/user/1000 systemctl --user daemon-reload
+  - sudo -u openclaw XDG_RUNTIME_DIR=/run/user/1000 systemctl --user start openclaw.service
+  - rm -f /var/lib/cloud/instances/*/user-data.txt
+  - rm -f /var/log/cloud-init-output.log

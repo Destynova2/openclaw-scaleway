@@ -1,0 +1,61 @@
+name: Trivy Security Compliance
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 6am UTC
+  workflow_dispatch:
+
+concurrency:
+  group: trivy-compliance
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [caddy-ratelimit, openclaw-tools, openclaw-cli]
+    env:
+      REGISTRY_ENDPOINT: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
+    steps:
+      - name: Login to Scaleway Container Registry
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "$REGISTRY_ENDPOINT" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Pull image
+        run: docker pull "$REGISTRY_ENDPOINT/${{ matrix.image }}:latest"
+
+      - name: Trivy vulnerability scan (HIGH + CRITICAL)
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ env.REGISTRY_ENDPOINT }}/${{ matrix.image }}:latest'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Install Trivy CLI
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: CIS Docker 1.6.0 compliance report
+        run: trivy image --compliance docker-cis-1.6.0 "$REGISTRY_ENDPOINT/${{ matrix.image }}:latest" || true
+
+  dockerfile-scan:
+    name: Scan Dockerfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Trivy config scan (Dockerfiles)
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          scan-type: 'config'
+          scan-ref: 'containers/'
+          format: 'table'
+          exit-code: '0'
+          severity: 'HIGH,CRITICAL'

@@ -1,0 +1,25 @@
+[package]
+name = "token-guard"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+http = "1"
+http-body-util = "0.1"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "process", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

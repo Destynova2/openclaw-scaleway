@@ -1,0 +1,12 @@
+FROM docker.io/rust:1-alpine AS builder
+RUN apk add --no-cache musl-dev
+WORKDIR /build
+COPY token-guard/Cargo.toml ./
+COPY token-guard/src/ src/
+RUN cargo build --release
+
+FROM scratch
+COPY --from=builder /build/target/release/token-guard /token-guard
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+USER 1000
+ENTRYPOINT ["/token-guard"]

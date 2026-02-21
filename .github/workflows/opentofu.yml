@@ -1,0 +1,176 @@
+name: OpenTofu Deploy
+
+on:
+  push:
+    branches: [main]
+    paths: ['terraform/**']
+  pull_request:
+    branches: [main]
+    paths: ['terraform/**']
+  schedule:
+    - cron: '0 8 * * 1'
+
+concurrency:
+  group: opentofu-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+env:
+  # S3 backend credentials — cle dediee avec default_project_id = projet du bucket de state
+  # (le protocole S3 scope les requetes au default_project_id de la cle API)
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCW_STATE_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCW_STATE_SECRET_KEY }}
+  # Scaleway provider credentials (via TF variables)
+  TF_VAR_scw_access_key: ${{ secrets.SCW_ACCESS_KEY }}
+  TF_VAR_scw_secret_key: ${{ secrets.SCW_SECRET_KEY }}
+  TF_VAR_scw_organization_id: ${{ secrets.SCW_ORGANIZATION_ID }}
+  # App config
+  TF_VAR_admin_ip_cidr: ${{ secrets.TF_VAR_admin_ip_cidr }}
+  TF_VAR_admin_email: ${{ secrets.TF_VAR_admin_email }}
+  TF_VAR_domain_name: ${{ secrets.TF_VAR_domain_name }}
+  TF_VAR_pomerium_idp_client_id: ${{ secrets.TF_VAR_pomerium_idp_client_id }}
+  TF_VAR_pomerium_idp_client_secret: ${{ secrets.TF_VAR_pomerium_idp_client_secret }}
+  TF_VAR_openclaw_version: ${{ secrets.TF_VAR_openclaw_version }}
+  TF_VAR_encryption_passphrase: ${{ secrets.TF_VAR_encryption_passphrase }}
+  TF_VAR_state_project_id: ${{ secrets.TF_VAR_state_project_id }}
+  TF_VAR_github_token: ${{ secrets.TF_VAR_github_token }}
+  TF_VAR_github_owner: ${{ github.repository_owner }}
+  TF_VAR_github_repository: ${{ github.event.repository.name }}
+
+jobs:
+  plan:
+    name: OpenTofu Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
+        with:
+          tofu_version: "1.8"
+
+      - name: OpenTofu Init
+        run: tofu init
+
+      - name: OpenTofu Format Check
+        run: tofu fmt -check -recursive
+
+      - name: OpenTofu Validate
+        run: tofu validate
+
+      - name: OpenTofu Test
+        run: tofu test
+
+      - name: OpenTofu Plan
+        id: plan
+        run: tofu plan -no-color -out=plan.tfplan
+        continue-on-error: true
+
+      - name: Post plan to PR
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const output = `#### OpenTofu Plan \`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            </details>`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tfplan
+          path: terraform/plan.tfplan
+          retention-days: 5
+
+  apply:
+    name: OpenTofu Apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
+        with:
+          tofu_version: "1.8"
+
+      - name: OpenTofu Init
+        run: tofu init
+
+      - name: OpenTofu Format Check
+        run: tofu fmt -check -recursive
+
+      - name: OpenTofu Validate
+        run: tofu validate
+
+      - name: OpenTofu Test
+        run: tofu test
+
+      - name: OpenTofu Plan
+        run: tofu plan -no-color -out=plan.tfplan
+
+      - name: OpenTofu Apply
+        run: tofu apply plan.tfplan
+
+  drift-detect:
+    name: Drift Detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'schedule'
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
+        with:
+          tofu_version: "1.8"
+
+      - name: OpenTofu Init
+        run: tofu init
+
+      - name: Detect Drift
+        id: drift
+        run: tofu plan -detailed-exitcode -no-color -out=drift.tfplan 2>&1 | tee drift-output.txt
+        continue-on-error: true
+
+      - name: Create issue on drift
+        if: steps.drift.outcome == 'failure'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const drift = fs.readFileSync('terraform/drift-output.txt', 'utf8').slice(0, 60000);
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔀 Infrastructure drift detected',
+              body: `Drift detected during scheduled plan.\n\n<details><summary>Plan output</summary>\n\n\`\`\`\n${drift}\n\`\`\`\n</details>`,
+              labels: ['infrastructure', 'drift']
+            });

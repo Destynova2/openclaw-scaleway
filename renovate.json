@@ -1,0 +1,101 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Paris",
+  "schedule": ["before 5pm on Friday"],
+  "prHourlyLimit": 3,
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "description": "Group OpenTofu providers — manual review required",
+      "matchManagers": ["terraform"],
+      "matchDepTypes": ["provider"],
+      "groupName": "opentofu-providers",
+      "automerge": false,
+      "registryUrls": ["https://registry.opentofu.org"]
+    },
+    {
+      "description": "Group GitHub Actions minor/patch — automerge",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "github-actions-minor-patch",
+      "automerge": true
+    },
+    {
+      "description": "GitHub Actions major — manual review required",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Pomerium Docker — manual review, security label",
+      "matchPackageNames": ["pomerium/pomerium"],
+      "automerge": false,
+      "labels": ["security"]
+    },
+    {
+      "description": "OpenTofu CLI — manual review required",
+      "matchDepNames": ["opentofu"],
+      "automerge": false
+    },
+    {
+      "description": "Group CLI tools in Containerfile.openclaw — single PR",
+      "matchFileNames": ["containers/Containerfile.openclaw"],
+      "matchDatasources": ["github-releases"],
+      "groupName": "openclaw-cli-tools",
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Pomerium version in Terraform files",
+      "fileMatch": ["terraform/.+\\.tf$"],
+      "matchStrings": ["pomerium(/pomerium)?:v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "depNameTemplate": "pomerium/pomerium",
+      "datasourceTemplate": "docker",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "OpenTofu CLI version in GitHub Actions workflow",
+      "fileMatch": ["\\.github/workflows/opentofu\\.yml$"],
+      "matchStrings": ["tofu_version:\\s*[\"']?(?<currentValue>[0-9]+\\.[0-9]+[0-9.]*)[\"']?"],
+      "depNameTemplate": "opentofu",
+      "datasourceTemplate": "github-releases",
+      "packageNameTemplate": "opentofu/opentofu",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "xcaddy version in Containerfile",
+      "fileMatch": ["containers/Containerfile\\.caddy$"],
+      "matchStrings": ["ARG XCADDY_VERSION=v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "depNameTemplate": "caddyserver/xcaddy",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "caddy-ratelimit version in Containerfile",
+      "fileMatch": ["containers/Containerfile\\.caddy$"],
+      "matchStrings": ["ARG CADDY_RATELIMIT_VERSION=v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "depNameTemplate": "mholt/caddy-ratelimit",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "CLI tool versions in Containerfile.openclaw",
+      "fileMatch": ["containers/Containerfile\\.openclaw$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG \\w+=(?<currentValue>\\S+)"
+      ]
+    }
+  ]
+}

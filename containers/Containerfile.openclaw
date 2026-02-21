@@ -1,0 +1,82 @@
+# ARG global — visible dans tous les FROM
+# renovate: datasource=docker depName=ghcr.io/openclaw/openclaw
+ARG OPENCLAW_VERSION=2026.2.19
+
+# Stage 1 : telecharger tous les outils CLI (binaires statiques)
+FROM docker.io/library/alpine:3.21 AS tools
+
+RUN apk add --no-cache curl tar xz
+
+WORKDIR /tools
+
+# renovate: datasource=github-releases depName=jqlang/jq
+ARG JQ_VERSION=jq-1.8.1
+RUN curl -fsSL "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-amd64" -o jq && chmod +x jq
+
+# renovate: datasource=github-releases depName=BurntSushi/ripgrep
+ARG RIPGREP_VERSION=15.1.0
+RUN curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+    | tar xz --strip-components=1 -C . "ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl/rg"
+
+# renovate: datasource=github-releases depName=cli/cli
+ARG GH_VERSION=v2.87.2
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/${GH_VERSION}/gh_${GH_VERSION#v}_linux_amd64.tar.gz" \
+    | tar xz --strip-components=2 -C . "gh_${GH_VERSION#v}_linux_amd64/bin/gh"
+
+# renovate: datasource=github-releases depName=Hyaxia/blogwatcher
+ARG BLOGWATCHER_VERSION=v0.0.2
+RUN curl -fsSL "https://github.com/Hyaxia/blogwatcher/releases/download/${BLOGWATCHER_VERSION}/blogwatcher_${BLOGWATCHER_VERSION#v}_linux_amd64.tar.gz" \
+    | tar xz -C . blogwatcher
+
+# renovate: datasource=github-releases depName=steipete/camsnap
+ARG CAMSNAP_VERSION=v0.2.0
+RUN curl -fsSL "https://github.com/steipete/camsnap/releases/download/${CAMSNAP_VERSION}/camsnap_${CAMSNAP_VERSION#v}_linux_amd64.tar.gz" \
+    | tar xz -C . camsnap
+
+# renovate: datasource=github-releases depName=steipete/gogcli
+ARG GOGCLI_VERSION=v0.11.0
+RUN curl -fsSL "https://github.com/steipete/gogcli/releases/download/${GOGCLI_VERSION}/gogcli_${GOGCLI_VERSION#v}_linux_amd64.tar.gz" \
+    | tar xz -C . gog
+
+# renovate: datasource=github-releases depName=pimalaya/himalaya
+ARG HIMALAYA_VERSION=v1.2.0
+RUN curl -fsSL "https://github.com/pimalaya/himalaya/releases/download/${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
+    | tar xz -C . himalaya
+
+# renovate: datasource=github-releases depName=steipete/gifgrep
+ARG GIFGREP_VERSION=v0.2.1
+RUN curl -fsSL "https://github.com/steipete/gifgrep/releases/download/${GIFGREP_VERSION}/gifgrep_${GIFGREP_VERSION#v}_linux_amd64.tar.gz" \
+    | tar xz -C . gifgrep
+
+# renovate: datasource=github-releases depName=openhue/openhue-cli
+ARG OPENHUE_VERSION=0.23
+RUN curl -fsSL "https://github.com/openhue/openhue-cli/releases/download/${OPENHUE_VERSION}/openhue_Linux_x86_64.tar.gz" \
+    | tar xz -C . openhue
+
+# renovate: datasource=github-releases depName=steipete/sonoscli
+ARG SONOSCLI_VERSION=v0.1.0
+RUN curl -fsSL "https://github.com/steipete/sonoscli/releases/download/${SONOSCLI_VERSION}/sonoscli_${SONOSCLI_VERSION#v}_linux_amd64.tar.gz" \
+    | tar xz -C . sonos
+
+# renovate: datasource=github-releases depName=Yakitrak/obsidian-cli
+ARG OBSIDIAN_CLI_VERSION=v0.3.1
+RUN curl -fsSL "https://github.com/Yakitrak/notesmd-cli/releases/download/${OBSIDIAN_CLI_VERSION}/notesmd-cli_${OBSIDIAN_CLI_VERSION#v}_linux_amd64.tar.gz" \
+    | tar xz -C . notesmd-cli
+
+# ffmpeg statique (pas de renovate — builds manuels johnvansickle)
+RUN curl -fsSL "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" \
+    | tar xJ --strip-components=1 --wildcards -C . "*/ffmpeg" "*/ffprobe"
+
+# Stage 2 : copier uniquement les binaires dans l'image OpenClaw
+FROM ghcr.io/openclaw/openclaw:${OPENCLAW_VERSION}
+
+COPY --from=tools /tools/jq /tools/rg /tools/gh \
+     /tools/blogwatcher /tools/camsnap /tools/gog /tools/himalaya \
+     /tools/gifgrep /tools/openhue /tools/sonos /tools/notesmd-cli \
+     /tools/ffmpeg /tools/ffprobe \
+     /usr/local/bin/
+
+# Symlink pi coding-agent dans le PATH (image de base non-root → USER root temporaire)
+USER root
+RUN ln -sf /app/node_modules/.bin/pi /usr/local/bin/pi
+USER node

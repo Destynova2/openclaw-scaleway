@@ -1,0 +1,23 @@
+# Image Pomerium avec shell pour injecter config.yaml depuis env var
+# L'image officielle est distroless (pas de shell) — on wrappe avec Alpine
+ARG POMERIUM_VERSION=v0.32.0
+
+FROM docker.io/pomerium/pomerium:${POMERIUM_VERSION} AS pomerium
+
+# Alpine 3.21 au lieu de debian:bookworm-slim — reduit l'attaque surface de 274 HIGH + 15 CRITICAL
+FROM docker.io/library/alpine:3.21
+RUN apk add --no-cache ca-certificates && adduser -D -u 1000 pomerium
+COPY --from=pomerium /bin/pomerium /bin/pomerium
+COPY --from=pomerium /pomerium /pomerium
+RUN chown -R 1000:1000 /pomerium
+
+EXPOSE 8080
+USER 1000
+
+# POLICY env var = base64-encoded routes YAML (sans prefixe "routes:")
+# Le script decode et ecrit /pomerium/config.yaml au demarrage
+ENTRYPOINT ["/bin/sh", "-c", "\
+  printf 'routes:\\n' > /pomerium/config.yaml && \
+  printf '%s' \"$POLICY\" | base64 -d >> /pomerium/config.yaml && \
+  exec /bin/pomerium --config /pomerium/config.yaml\
+"]
