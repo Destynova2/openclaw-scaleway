@@ -56,10 +56,16 @@ module "iam_cicd" {
       permission_set_names = ["ObjectStorageFullAccess"]
     }] : []
   )
-  org_rules = [{
-    organization_id      = local.org_id
-    permission_set_names = ["IAMManager", "ProjectManager", "DomainsDNSFullAccess"]
-  }]
+  org_rules = [
+    {
+      organization_id      = local.org_id
+      permission_set_names = ["IAMManager", "ProjectManager"]
+    },
+    {
+      organization_id      = local.org_id
+      permission_set_names = ["DomainsDNSFullAccess"]
+    }
+  ]
   extra_api_keys = var.state_project_id != "" ? {
     state = {
       description        = "Cle API CI/CD pour acces S3 state (projet bootstrap)"
