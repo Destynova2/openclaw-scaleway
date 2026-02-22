@@ -58,7 +58,7 @@ module "iam_cicd" {
   )
   org_rules = [{
     organization_id      = local.org_id
-    permission_set_names = ["IAMManager", "ProjectManager"]
+    permission_set_names = ["IAMManager", "ProjectManager", "DomainsDNSFullAccess"]
   }]
   extra_api_keys = var.state_project_id != "" ? {
     state = {
