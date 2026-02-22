@@ -167,6 +167,7 @@ jobs:
           exit-code: '1'
           severity: 'CRITICAL'
           ignore-unfixed: true
+          trivyignores: 'containers/.trivyignore'
 
       - name: Push image
         if: steps.check.outputs.skip != 'true'

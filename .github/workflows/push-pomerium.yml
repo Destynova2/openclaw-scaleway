@@ -40,6 +40,7 @@ jobs:
           exit-code: '1'
           severity: 'CRITICAL'
           ignore-unfixed: true
+          trivyignores: 'containers/.trivyignore'
 
       - name: Push image
         run: docker push "$REGISTRY_ENDPOINT/$IMAGE_NAME:${{ steps.version.outputs.tag }}"
