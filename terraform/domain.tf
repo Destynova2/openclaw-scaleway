@@ -10,6 +10,10 @@ resource "scaleway_domain_registration" "grob_ninja" {
   auto_renew        = false
   project_id        = local.project_id
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
   owner_contact {
     legal_form                  = var.domain_owner_contact.legal_form
     firstname                   = var.domain_owner_contact.firstname

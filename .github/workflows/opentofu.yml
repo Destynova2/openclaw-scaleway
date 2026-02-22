@@ -1,17 +1,18 @@
-name: OpenTofu Deploy
+name: Deploy
 
 on:
   push:
     branches: [main]
-    paths: ['terraform/**']
+    paths: ['terraform/**', 'containers/**']
   pull_request:
     branches: [main]
     paths: ['terraform/**']
   schedule:
     - cron: '0 8 * * 1'
+  workflow_dispatch:
 
 concurrency:
-  group: opentofu-${{ github.ref }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -42,6 +43,176 @@ env:
   TF_VAR_github_repository: ${{ github.event.repository.name }}
 
 jobs:
+  # ── Path detection (push + dispatch) ────────────────────────────────
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    outputs:
+      caddy: ${{ steps.changes.outputs.caddy }}
+      pomerium: ${{ steps.changes.outputs.pomerium }}
+      openclaw: ${{ steps.changes.outputs.openclaw }}
+      openclaw_cli: ${{ steps.changes.outputs.openclaw_cli }}
+      token_guard: ${{ steps.changes.outputs.token_guard }}
+      terraform: ${{ steps.changes.outputs.terraform }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed paths
+        id: changes
+        run: |
+          # workflow_dispatch ou premier push : tout rebuilder
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || \
+             [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            for key in caddy pomerium openclaw openclaw_cli token_guard terraform; do
+              echo "$key=true" >> "$GITHUB_OUTPUT"
+            done
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+          echo "caddy=$(echo "$CHANGED" | grep -q '^containers/Containerfile\.caddy$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "pomerium=$(echo "$CHANGED" | grep -q '^containers/Containerfile\.pomerium$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "openclaw=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.openclaw|\.trivyignore)$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "openclaw_cli=$(echo "$CHANGED" | grep -q '^containers/Containerfile\.openclaw-cli$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "token_guard=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.token-guard|token-guard/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "terraform=$(echo "$CHANGED" | grep -q '^terraform/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  # ── Container builds (parallel) ─────────────────────────────────────
+  build-caddy:
+    name: Build Caddy
+    needs: detect-changes
+    if: needs.detect-changes.outputs.caddy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Login to Scaleway Container Registry
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Build image
+        run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/caddy-ratelimit:latest" -f containers/Containerfile.caddy containers/
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/caddy-ratelimit:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+
+      - name: Push image
+        run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/caddy-ratelimit:latest"
+
+  build-pomerium:
+    name: Build Pomerium
+    needs: detect-changes
+    if: needs.detect-changes.outputs.pomerium == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Login to Scaleway Container Registry
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Extract Pomerium version from Containerfile
+        id: version
+        run: echo "tag=$(grep '^ARG POMERIUM_VERSION=' containers/Containerfile.pomerium | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: docker build -t "${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}/pomerium:${{ steps.version.outputs.tag }}" -f containers/Containerfile.pomerium containers/
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}/pomerium:${{ steps.version.outputs.tag }}'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+
+      - name: Push image
+        run: docker push "${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}/pomerium:${{ steps.version.outputs.tag }}"
+
+  build-openclaw:
+    name: Build OpenClaw
+    needs: detect-changes
+    if: needs.detect-changes.outputs.openclaw == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Login to Scaleway Container Registry
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Build image
+        run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-tools:latest" -f containers/Containerfile.openclaw containers/
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-tools:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+          trivyignores: 'containers/.trivyignore'
+
+      - name: Push image
+        run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-tools:latest"
+
+  build-openclaw-cli:
+    name: Build OpenClaw CLI
+    needs: detect-changes
+    if: needs.detect-changes.outputs.openclaw_cli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Login to Scaleway Container Registry
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Build image
+        run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-cli:latest" -f containers/Containerfile.openclaw-cli containers/
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-cli:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+
+      - name: Push image
+        run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-cli:latest"
+
+  build-token-guard:
+    name: Build Token Guard
+    needs: detect-changes
+    if: needs.detect-changes.outputs.token_guard == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Login to Scaleway Container Registry
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Build image
+        run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest" -f containers/Containerfile.token-guard containers/
+
+      - name: Push image
+        run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest"
+
+  # ── OpenTofu Plan (PRs only) ────────────────────────────────────────
   plan:
     name: OpenTofu Plan
     runs-on: ubuntu-latest
@@ -103,11 +274,19 @@ jobs:
           path: terraform/plan.tfplan
           retention-days: 5
 
+  # ── OpenTofu Apply (push to main, after builds) ─────────────────────
   apply:
     name: OpenTofu Apply
+    needs: [detect-changes, build-caddy, build-pomerium, build-openclaw, build-openclaw-cli, build-token-guard]
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (needs.detect-changes.outputs.terraform == 'true' || github.event_name == 'workflow_dispatch') &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
     defaults:
       run:
@@ -137,6 +316,7 @@ jobs:
       - name: OpenTofu Apply
         run: tofu apply plan.tfplan
 
+  # ── Drift Detection (weekly schedule) ───────────────────────────────
   drift-detect:
     name: Drift Detection
     runs-on: ubuntu-latest

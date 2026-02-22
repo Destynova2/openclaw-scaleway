@@ -4,8 +4,8 @@
 
 ```
 .claude/skills/           7 skills d'audit et validation (voir ci-dessous)
-.github/workflows/        opentofu.yml (deploy), build-caddy.yml, push-pomerium.yml,
-                          build-openclaw.yml, build-openclaw-cli.yml, build-token-guard.yml,
+.github/workflows/        opentofu.yml (deploy: builds + apply + drift),
+                          build-*.yml / push-pomerium.yml (workflow_dispatch only),
                           renovate.yml, trivy-compliance.yml
 containers/               Containerfile.caddy, Containerfile.pomerium, Containerfile.openclaw,
                           Containerfile.openclaw-cli, Containerfile.token-guard
@@ -49,6 +49,91 @@ tofu test                       # depuis terraform/ (34 tests, ~15s)
 - Ne JAMAIS lancer `tofu plan/apply/destroy` sans `AWS_ACCESS_KEY_ID` et `AWS_SECRET_ACCESS_KEY`
 - Toujours `tofu fmt` + `tofu validate` AVANT `tofu apply`
 - Le working directory DOIT etre `terraform/` (pas la racine du projet)
+
+## Deployment Flow
+
+Le deploiement en production passe par **GitHub Actions CI/CD**, pas par `tofu apply` local.
+
+### Sequence complete (premier deploiement)
+
+```
+1. Configure    terraform.tfvars (secrets, domain, OAuth)
+2. Bootstrap    cd terraform/bootstrap && tofu init && tofu apply -var-file=../terraform.tfvars
+                → cree le bucket S3, genere encryption_passphrase, pousse les GitHub Secrets
+3. Git push     git push origin main
+                → CI : detect-changes → build images (parallel) → apply (needs builds)
+4. Done         https://app.<domain>
+```
+
+Sur le premier push, tout le repo est nouveau → tous les builds se declenchent en parallele,
+puis `apply` attend que les 5 images soient poussees avant de deployer l'infra.
+
+### En routine (modifications d'infra)
+
+```
+1. Modifier les .tf localement
+2. tofu fmt + tofu validate + tofu test (local, pas besoin de credentials S3)
+3. git push origin main
+4. CI deploy automatiquement (job "apply" sur push to main)
+```
+
+### Deploy local (exceptionnel / debug)
+
+```bash
+cd terraform
+source <(grep '=' backend.conf | sed 's/access_key/AWS_ACCESS_KEY_ID/;s/secret_key/AWS_SECRET_ACCESS_KEY/;s/ //g;s/^/export /')
+tofu plan    # verifier
+tofu apply   # appliquer
+```
+
+### Credentials et scopes requis
+
+**Scaleway API key** (dans `terraform.tfvars`) :
+- **Scope : Organization** (pas project-level) — necessaire pour : creation de projet, DNS, TEM, IAM, Billing API
+- 2 cles API distinctes :
+  - `scw_access_key` / `scw_secret_key` : cle principale (org-level, tous les droits)
+  - `backend.conf` (`access_key`/`secret_key`) : cle S3 state (ObjectStorageFullAccess sur le projet du bucket)
+
+**GitHub tokens** (3 tokens distincts) :
+
+| Token | Scope | Usage | Ou le mettre |
+|-------|-------|-------|-------------|
+| `github_token` | `repo` (classic PAT) | Auto-configurer les GitHub Actions Secrets via OpenTofu | `terraform.tfvars` |
+| `RENOVATE_TOKEN` | `repo` (classic PAT) | Renovate dependency management | GitHub Settings > Secrets (manuel) |
+| `github_agent_token` | Fine-grained: `Contents`, `Issues`, `Pull requests` | Agent OpenClaw acces repos prives | `terraform.tfvars` (optionnel) |
+
+**GitHub OAuth App** (pour Pomerium SSO) :
+- Creer dans GitHub > Settings > Developers > OAuth Apps
+- Callback URL : `https://auth.<domain>/oauth2/callback`
+- Client ID → `pomerium_idp_client_id`
+- Client Secret → `pomerium_idp_client_secret`
+
+### GitHub Actions Secrets
+
+Le bootstrap + `tofu apply` creent automatiquement **~25 secrets** dans GitHub Actions (si `github_token` fourni).
+Le seul secret **manuel** est `RENOVATE_TOKEN` (PAT GitHub separe pour Renovate).
+
+### Destroy / Rebuild complet
+
+```bash
+# 1. Retirer les ressources prevent_destroy du state
+tofu state rm 'scaleway_domain_registration.grob_ninja[0]'
+tofu state rm 'scaleway_account_project.openclaw'
+tofu state rm 'tls_private_key.admin'
+tofu state rm 'scaleway_vpc_private_network.openclaw'
+
+# 2. Destroy tout le reste
+tofu destroy
+
+# 3. Re-importer le projet existant
+tofu import 'scaleway_account_project.openclaw' '<project-uuid>'
+
+# 4. Push Pomerium image d'abord (CI workflow)
+# 5. Apply
+tofu apply
+# Note : scaleway_domain_registration echouera (already registered)
+#        → import impossible (provider limitation), laisser hors state
+```
 
 ## Architecture
 

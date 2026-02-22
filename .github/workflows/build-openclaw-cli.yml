@@ -1,9 +1,6 @@
 name: Build OpenClaw CLI Image
 
 on:
-  push:
-    branches: [main]
-    paths: ['containers/Containerfile.openclaw-cli']
   workflow_dispatch:
 
 concurrency:

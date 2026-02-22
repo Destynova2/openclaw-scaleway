@@ -1,9 +1,6 @@
 name: Build Caddy Image
 
 on:
-  push:
-    branches: [main]
-    paths: ['containers/Containerfile.caddy']
   workflow_dispatch:
 
 concurrency:

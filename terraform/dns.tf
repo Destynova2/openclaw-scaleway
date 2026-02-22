@@ -21,7 +21,9 @@ module "dns" {
   zone    = var.domain_name
   records = merge(local.dns_base_records, local.dns_pomerium_records)
 
-  depends_on = [scaleway_domain_registration.grob_ninja]
+  # Note : la zone DNS existe des l'enregistrement du domaine.
+  # Pas de depends_on sur domain_registration pour eviter de bloquer
+  # les records quand le domaine est hors state (import impossible).
 }
 
 # Custom domains sur le Serverless Container — declenche Let's Encrypt auto

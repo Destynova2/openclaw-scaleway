@@ -37,13 +37,13 @@ override_resource {
 }
 
 variables {
-  scw_access_key      = "SCWTEST0000000000000"
-  scw_secret_key      = "00000000-0000-0000-0000-000000000001"
-  scw_organization_id = "00000000-0000-0000-0000-000000000000"
-  admin_ip_cidr       = "203.0.113.42/32"
-  admin_email         = "admin@example.com"
-  domain_name         = "example.com"
-  openclaw_version    = "1.0.0"
+  scw_access_key        = "SCWTEST0000000000000"
+  scw_secret_key        = "00000000-0000-0000-0000-000000000001"
+  scw_organization_id   = "00000000-0000-0000-0000-000000000000"
+  admin_ip_cidr         = "203.0.113.42/32"
+  admin_email           = "admin@example.com"
+  domain_name           = "example.com"
+  openclaw_version      = "1.0.0"
   encryption_passphrase = "test-passphrase-minimum-16-chars"
 }
 
@@ -52,7 +52,7 @@ variables {
 run "all_disabled_plan_succeeds" {
   command = plan
   variables {
-    enable_pomerium  = false
+    enable_pomerium   = false
     enable_killswitch = false
     enable_monitoring = false
     enable_backup     = false

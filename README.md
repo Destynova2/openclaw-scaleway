@@ -66,21 +66,27 @@ graph TB
 ## Setup
 
 ```bash
-# 1. Configure
-cp terraform/terraform.tfvars.example terraform/terraform.tfvars
-# Fill in: Scaleway API key, domain, GitHub OAuth app, GitHub PAT
+# 1. Fork + clone
+# Fork this repo on GitHub, then:
+git clone git@github.com:<you>/fmj.git && cd fmj
 
-# 2. Bootstrap (once)
+# 2. Configure
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+# Fill in: Scaleway API key (org-level), domain, GitHub OAuth app, GitHub PAT
+
+# 3. Bootstrap (once — creates S3 bucket, encryption key, pushes ~25 GitHub Actions secrets)
 cd terraform/bootstrap && tofu init && tofu apply -var-file=../terraform.tfvars
 
-# 3. Push Pomerium image (once)
-# GitHub Actions > "Push Pomerium Image" > Run workflow
-
-# 4. Deploy
-cd terraform && tofu init -backend-config=backend.conf && tofu apply
-
-# 5. Done — check https://app.<your-domain>
+# 4. Commit + push — CI does the rest
+git add -A && git commit -m "feat: initial deploy" && git push origin main
 ```
+
+On first push, a single CI workflow (`Deploy`) handles everything:
+1. **Detect changes** — determines which container images and terraform files changed
+2. **Build images** — builds all 5 container images in parallel (caddy, openclaw, pomerium, token-guard, cli)
+3. **OpenTofu Apply** — waits for all builds to finish, then creates infrastructure
+
+After initial setup, **routine changes** only need: edit files → `git push` → CI auto-deploys (only rebuilds changed images).
 
 ## What you get
 
@@ -91,7 +97,7 @@ cd terraform && tofu init -backend-config=backend.conf && tofu apply
 - **Audio transcription** via whisper-large-v3 (up to 20 MB)
 - **DLP proxy** (Token Guard) — 58 regex patterns block secrets, API keys, credit cards, IBAN, crypto wallets in LLM calls
 - **Kill switch** : serverless function checks billing every hour, poweroff at configurable threshold
-- **CI/CD** : 8 workflows, push to `main` = auto deploy, Trivy scan on every image build, Renovate for deps
+- **CI/CD** : unified Deploy workflow (builds + apply with `needs`), Trivy scan, Renovate for deps
 - **Security** : Lynis 88/100, nftables, fail2ban, AIDE, auditd, rkhunter, debsums, encrypted state
 - **Observability** : Cockpit logs via Grafana Alloy, weekly Lynis + Trivy cron audits (Telegram alerts)
 - **Backups** : restic to S3, encrypted, daily 2am, 7d/4w/12m retention
@@ -173,11 +179,30 @@ Agent → SSH (Ed25519) → root@instance → podman exec → CLI sidecar → ga
 
 ## Prerequisites
 
-- [Scaleway account](https://console.scaleway.com/register) + API key (scope Organization)
+- [Scaleway account](https://console.scaleway.com/register) + API key (**scope: Organization**, not project-level)
 - Domain name ([Scaleway Domains](https://console.scaleway.com/domains/) or set `domain_owner_contact`)
 - [GitHub OAuth App](https://github.com/settings/developers) (callback: `https://auth.<domain>/oauth2/callback`) — only if `enable_pomerium = true`
-- [GitHub PAT](https://github.com/settings/tokens) scope `repo`
+- [GitHub PAT](https://github.com/settings/tokens) scope `repo` — for auto-configuring Actions secrets
 - [OpenTofu >= 1.8](https://opentofu.org/docs/intro/install/)
+
+### Scaleway API key scopes
+
+You need **2 separate API keys**:
+
+| Key | Scope | Used for |
+|-----|-------|----------|
+| Main API key (`scw_access_key`) | **Organization-level** | All resources: project, instance, DNS, IAM, TEM, containers, registry, billing |
+| State S3 key (`backend.conf`) | **ObjectStorageFullAccess** on state bucket project | S3 backend read/write for OpenTofu state |
+
+The main key must be org-level because it creates the Scaleway project and manages org-level resources (DNS, TEM, IAM).
+
+### GitHub tokens (3 distinct tokens)
+
+| Token | Type | Scope | Usage |
+|-------|------|-------|-------|
+| `github_token` | Classic PAT | `repo` | Auto-configure GitHub Actions Secrets via OpenTofu |
+| `RENOVATE_TOKEN` | Classic PAT | `repo` | Renovate dependency management (manual secret) |
+| `github_agent_token` | Fine-grained PAT | `Contents`, `Issues`, `Pull requests` | OpenClaw agent access to private repos (optional) |
 
 ## After deploy
 
@@ -240,7 +265,9 @@ ssh root@<IP> "cd /tmp && sudo -u openclaw XDG_RUNTIME_DIR=/run/user/1000 podman
 
 ## CI/CD (fork guide)
 
-Workflows auto-deploy on push to `main`. Fork this repo and set these GitHub Actions secrets:
+The main `Deploy` workflow (`opentofu.yml`) handles everything: path detection, image builds, and OpenTofu apply with `needs` dependencies. Standalone build workflows are kept for manual `workflow_dispatch` only.
+
+Fork this repo and set these GitHub Actions secrets:
 
 | Secret | Description |
 |--------|-------------|

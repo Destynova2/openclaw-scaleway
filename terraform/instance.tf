@@ -1,6 +1,7 @@
 resource "random_password" "gateway_token" {
   length  = 32
   special = false
+
 }
 
 resource "scaleway_instance_ip" "openclaw" {

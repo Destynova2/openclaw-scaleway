@@ -1,9 +1,6 @@
 name: Build Token Guard Image
 
 on:
-  push:
-    branches: [main]
-    paths: ['containers/token-guard/**', 'containers/Containerfile.token-guard']
   workflow_dispatch:
 
 concurrency:

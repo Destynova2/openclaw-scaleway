@@ -1,9 +1,6 @@
 name: Build OpenClaw Image
 
 on:
-  push:
-    branches: [main]
-    paths: ['containers/Containerfile.openclaw', 'containers/.trivyignore']
   workflow_dispatch:
 
 concurrency:
