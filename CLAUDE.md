@@ -65,8 +65,10 @@ Le deploiement en production passe par **GitHub Actions CI/CD**, pas par `tofu a
 4. Done         https://app.<domain>
 ```
 
-Sur le premier push, tout le repo est nouveau → tous les builds se declenchent en parallele,
-puis `apply` attend que les 5 images soient poussees avant de deployer l'infra.
+Premier deploy = 2 CI runs (convergence automatique) :
+- Run 1 : builds skip (registry pas encore cree), apply cree l'infra + met a jour les secrets
+- Run 2 : builds poussent les images, apply cree le container Pomerium
+Declencher le run 2 via `gh workflow run opentofu.yml` ou un push trivial.
 
 ### En routine (modifications d'infra)
 

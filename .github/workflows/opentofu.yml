@@ -81,6 +81,8 @@ jobs:
           echo "terraform=$(echo "$CHANGED" | grep -q '^terraform/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   # ── Container builds (parallel) ─────────────────────────────────────
+  # Chaque build verifie que le registry endpoint existe (vide au premier deploy,
+  # rempli par tofu apply). Si vide → skip gracieux (success), apply peut tourner.
   build-caddy:
     name: Build Caddy
     needs: detect-changes
@@ -88,15 +90,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Check registry endpoint
+        id: check
+        run: |
+          if [ -z "$REGISTRY" ]; then
+            echo "::notice::Registry endpoint not configured — skipping (first deploy)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REGISTRY: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: steps.check.outputs.skip != 'true'
 
       - name: Login to Scaleway Container Registry
+        if: steps.check.outputs.skip != 'true'
         run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
 
       - name: Build image
+        if: steps.check.outputs.skip != 'true'
         run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/caddy-ratelimit:latest" -f containers/Containerfile.caddy containers/
 
       - name: Trivy vulnerability scan
+        if: steps.check.outputs.skip != 'true'
         uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/caddy-ratelimit:latest'
@@ -106,6 +122,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Push image
+        if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/caddy-ratelimit:latest"
 
   build-pomerium:
@@ -115,19 +132,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Check registry endpoint
+        id: check
+        run: |
+          if [ -z "$REGISTRY" ]; then
+            echo "::notice::Pomerium registry not configured — skipping (first deploy)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REGISTRY: ${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: steps.check.outputs.skip != 'true'
 
       - name: Login to Scaleway Container Registry
+        if: steps.check.outputs.skip != 'true'
         run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
 
       - name: Extract Pomerium version from Containerfile
+        if: steps.check.outputs.skip != 'true'
         id: version
         run: echo "tag=$(grep '^ARG POMERIUM_VERSION=' containers/Containerfile.pomerium | cut -d= -f2)" >> "$GITHUB_OUTPUT"
 
       - name: Build image
+        if: steps.check.outputs.skip != 'true'
         run: docker build -t "${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}/pomerium:${{ steps.version.outputs.tag }}" -f containers/Containerfile.pomerium containers/
 
       - name: Trivy vulnerability scan
+        if: steps.check.outputs.skip != 'true'
         uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: '${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}/pomerium:${{ steps.version.outputs.tag }}'
@@ -137,6 +169,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Push image
+        if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_POMERIUM_REGISTRY_ENDPOINT }}/pomerium:${{ steps.version.outputs.tag }}"
 
   build-openclaw:
@@ -146,15 +179,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Check registry endpoint
+        id: check
+        run: |
+          if [ -z "$REGISTRY" ]; then
+            echo "::notice::Registry endpoint not configured — skipping (first deploy)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REGISTRY: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: steps.check.outputs.skip != 'true'
 
       - name: Login to Scaleway Container Registry
+        if: steps.check.outputs.skip != 'true'
         run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
 
       - name: Build image
+        if: steps.check.outputs.skip != 'true'
         run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-tools:latest" -f containers/Containerfile.openclaw containers/
 
       - name: Trivy vulnerability scan
+        if: steps.check.outputs.skip != 'true'
         uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-tools:latest'
@@ -165,6 +212,7 @@ jobs:
           trivyignores: 'containers/.trivyignore'
 
       - name: Push image
+        if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-tools:latest"
 
   build-openclaw-cli:
@@ -174,15 +222,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Check registry endpoint
+        id: check
+        run: |
+          if [ -z "$REGISTRY" ]; then
+            echo "::notice::Registry endpoint not configured — skipping (first deploy)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REGISTRY: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: steps.check.outputs.skip != 'true'
 
       - name: Login to Scaleway Container Registry
+        if: steps.check.outputs.skip != 'true'
         run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
 
       - name: Build image
+        if: steps.check.outputs.skip != 'true'
         run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-cli:latest" -f containers/Containerfile.openclaw-cli containers/
 
       - name: Trivy vulnerability scan
+        if: steps.check.outputs.skip != 'true'
         uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-cli:latest'
@@ -192,6 +254,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Push image
+        if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/openclaw-cli:latest"
 
   build-token-guard:
@@ -201,15 +264,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Check registry endpoint
+        id: check
+        run: |
+          if [ -z "$REGISTRY" ]; then
+            echo "::notice::Registry endpoint not configured — skipping (first deploy)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REGISTRY: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: steps.check.outputs.skip != 'true'
 
       - name: Login to Scaleway Container Registry
+        if: steps.check.outputs.skip != 'true'
         run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
 
       - name: Build image
+        if: steps.check.outputs.skip != 'true'
         run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest" -f containers/Containerfile.token-guard containers/
 
       - name: Push image
+        if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest"
 
   # ── OpenTofu Plan (PRs only) ────────────────────────────────────────
@@ -275,6 +352,9 @@ jobs:
           retention-days: 5
 
   # ── OpenTofu Apply (push to main, after builds) ─────────────────────
+  # Sur le premier deploy les builds sont skip (registry pas encore cree).
+  # Apply cree l'infra (registries inclus) et met a jour les GitHub secrets.
+  # Au second run les builds trouvent le registry et poussent les images.
   apply:
     name: OpenTofu Apply
     needs: [detect-changes, build-caddy, build-pomerium, build-openclaw, build-openclaw-cli, build-token-guard]
@@ -283,7 +363,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.terraform == 'true' || github.event_name == 'workflow_dispatch') &&
-      !contains(needs.*.result, 'failure') &&
+      needs.detect-changes.result == 'success' &&
       !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 45

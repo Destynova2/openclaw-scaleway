@@ -81,10 +81,9 @@ cd terraform/bootstrap && tofu init && tofu apply -var-file=../terraform.tfvars
 git add -A && git commit -m "feat: initial deploy" && git push origin main
 ```
 
-On first push, a single CI workflow (`Deploy`) handles everything:
-1. **Detect changes** — determines which container images and terraform files changed
-2. **Build images** — builds all 5 container images in parallel (caddy, openclaw, pomerium, token-guard, cli)
-3. **OpenTofu Apply** — waits for all builds to finish, then creates infrastructure
+On first push, CI converges in 2 runs:
+1. **Run 1** — builds skip (registry not created yet), apply creates all infrastructure and updates GitHub secrets with registry endpoints
+2. **Run 2** (`gh workflow run opentofu.yml`) — builds push all 5 images, apply creates Pomerium container
 
 After initial setup, **routine changes** only need: edit files → `git push` → CI auto-deploys (only rebuilds changed images).
 
