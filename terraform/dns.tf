@@ -21,9 +21,10 @@ module "dns" {
   zone    = var.domain_name
   records = merge(local.dns_base_records, local.dns_pomerium_records)
 
-  # Note : la zone DNS existe des l'enregistrement du domaine.
-  # Pas de depends_on sur domain_registration pour eviter de bloquer
-  # les records quand le domaine est hors state (import impossible).
+  # Attendre que la policy CICD ait DomainsDNSFullAccess avant de creer les records.
+  # Sans ce depends_on, tofu lance la policy update et les DNS en parallele,
+  # et certains records echouent en 403 (propagation IAM pas encore effective).
+  depends_on = [module.iam_cicd]
 }
 
 # Custom domains sur le Serverless Container — declenche Let's Encrypt auto
