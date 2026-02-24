@@ -211,7 +211,7 @@ async fn e2e_blocks_exact_token() {
 }
 
 #[tokio::test]
-async fn e2e_blocks_email() {
+async fn e2e_allows_email() {
     let up_port = free_port();
     let _upstream = start_upstream(up_port).await;
     let guard = TokenGuardProcess::start(up_port, "").await;
@@ -224,7 +224,7 @@ async fn e2e_blocks_email() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 200);
 }
 
 #[tokio::test]

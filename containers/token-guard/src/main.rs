@@ -45,16 +45,13 @@ const TOKEN_PATTERNS: &[&str] = &[
     r"\b3[47][0-9]{13}\b",                                     // Amex
     r"\b6(?:011|5[0-9]{2})[0-9]{12}\b",                       // Discover
     r"\b(?:2131|1800|35[0-9]{3})[0-9]{11}\b",                 // JCB
-    // Bancaire
+    // Bancaire (IBAN seulement — SWIFT/BIC et SEPA trop larges, matchent des mots courants)
     r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b",                     // IBAN
-    r"\b[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b",             // SWIFT/BIC
-    r"\b[A-Z]{2}\d{3}[A-Z0-9]{6,28}\b",                      // SEPA Creditor ID
     // Crypto wallets
     r"\b0x[a-fA-F0-9]{40}\b",                                 // Ethereum (ETH)
     r"\b(?:bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\b",            // Bitcoin (BTC)
     r"\b4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}\b",                // Monero (XMR)
-    // PII
-    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",   // Email
+    // NB: email retire — trop de faux positifs (system prompts, configs, discussions normales)
 ];
 
 async fn proxy(
@@ -306,6 +303,21 @@ mod tests {
         assert_eq!(post(&app(vec![]), "IBAN DE89370400440532013000").await, 403);
     }
 
+    // --- Patterns retires (doivent passer) ---
+
+    #[tokio::test]
+    async fn allows_email_in_prompt() {
+        let status = post(&app(vec![]), "contact admin@example.com for help").await;
+        assert_ne!(status, 403);
+    }
+
+    #[tokio::test]
+    async fn allows_uppercase_words() {
+        // SWIFT/BIC pattern retiré — ne doit plus bloquer les mots majuscules
+        let status = post(&app(vec![]), "REQUIRED FUNCTION RESPONSE").await;
+        assert_ne!(status, 403);
+    }
+
     // --- Crypto wallets ---
 
     #[tokio::test]
@@ -316,13 +328,6 @@ mod tests {
     #[tokio::test]
     async fn blocks_btc_address() {
         assert_eq!(post(&app(vec![]), "btc bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq").await, 403);
-    }
-
-    // --- Email ---
-
-    #[tokio::test]
-    async fn blocks_email() {
-        assert_eq!(post(&app(vec![]), "contact admin@example.com for help").await, 403);
     }
 
     // --- Exact tokens ---
