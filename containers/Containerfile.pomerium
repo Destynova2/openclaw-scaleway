@@ -1,13 +1,10 @@
 # Image Pomerium custom — l'officielle est distroless (scan Trivy impossible)
-# Debian slim fournit glibc requis par Envoy embarque (Alpine/musl incompatible)
 ARG POMERIUM_VERSION=v0.32.0
 
 FROM docker.io/pomerium/pomerium:${POMERIUM_VERSION} AS pomerium
 
-FROM docker.io/library/debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -r -u 1000 -m pomerium
+FROM docker.io/library/alpine:3.21
+RUN apk add --no-cache ca-certificates && adduser -D -u 1000 pomerium
 COPY --from=pomerium /bin/pomerium /bin/pomerium
 COPY --from=pomerium /pomerium /pomerium
 RUN chown -R 1000:1000 /pomerium
