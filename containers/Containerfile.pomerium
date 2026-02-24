@@ -1,6 +1,5 @@
-# Image Pomerium avec shell pour injecter config.yaml depuis env var
-# L'image officielle est distroless (pas de shell) — on wrappe avec Debian slim
-# NB: Alpine (musl) incompatible avec Envoy embarque (lie contre glibc)
+# Image Pomerium custom — l'officielle est distroless (scan Trivy impossible)
+# Debian slim fournit glibc requis par Envoy embarque (Alpine/musl incompatible)
 ARG POMERIUM_VERSION=v0.32.0
 
 FROM docker.io/pomerium/pomerium:${POMERIUM_VERSION} AS pomerium
@@ -16,10 +15,6 @@ RUN chown -R 1000:1000 /pomerium
 EXPOSE 8080
 USER 1000
 
-# POLICY env var = base64-encoded routes YAML (sans prefixe "routes:")
-# Le script decode et ecrit /pomerium/config.yaml au demarrage
-ENTRYPOINT ["/bin/sh", "-c", "\
-  printf 'routes:\\n' > /pomerium/config.yaml && \
-  printf '%s' \"$POLICY\" | base64 -d >> /pomerium/config.yaml && \
-  exec /bin/pomerium --config /pomerium/config.yaml\
-"]
+# Pomerium lit directement les routes depuis l'env var ROUTES (base64-encoded YAML)
+# Pas besoin de config file — les env vars suffisent (ADDRESS, AUTHENTICATE_SERVICE_URL, etc.)
+ENTRYPOINT ["/bin/pomerium"]
