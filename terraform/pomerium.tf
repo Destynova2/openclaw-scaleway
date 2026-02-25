@@ -68,7 +68,7 @@ resource "scaleway_container" "pomerium" {
     LOG_LEVEL                = "debug"
     INSECURE_SERVER          = "true"
     AUTHENTICATE_SERVICE_URL = "https://auth.${var.domain_name}"
-    ROUTES                   = local.pomerium_routes
+    POLICY                   = local.pomerium_routes
   }
 
   secret_environment_variables = {
