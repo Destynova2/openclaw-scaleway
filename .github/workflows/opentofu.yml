@@ -3,10 +3,10 @@ name: Deploy
 on:
   push:
     branches: [main]
-    paths: ['terraform/**', 'containers/**']
+    paths: ['terraform/**', 'containers/**', '.github/workflows/**']
   pull_request:
     branches: [main]
-    paths: ['terraform/**']
+    paths: ['terraform/**', 'containers/**', '.github/workflows/**']
   schedule:
     - cron: '0 8 * * 1'
   workflow_dispatch:
@@ -365,9 +365,10 @@ jobs:
           retention-days: 5
 
   # ── OpenTofu Apply (push to main, after builds) ─────────────────────
-  # Sur le premier deploy les builds sont skip (registry pas encore cree).
-  # Apply cree l'infra (registries inclus) et met a jour les GitHub secrets.
-  # Au second run les builds trouvent le registry et poussent les images.
+  # Toujours apply apres les builds — meme pour des changements containers-only.
+  # Si aucun attribut Terraform n'a change, apply est un no-op rapide.
+  # Les container resources utilisent _IMAGE_HASH pour forcer le redeploy
+  # quand un Containerfile change (meme si le tag d'image est identique).
   apply:
     name: OpenTofu Apply
     needs: [detect-changes, build-caddy, build-pomerium, build-openclaw, build-openclaw-cli, build-token-guard]
@@ -375,7 +376,6 @@ jobs:
       always() &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      (needs.detect-changes.outputs.terraform == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.detect-changes.result == 'success' &&
       !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
