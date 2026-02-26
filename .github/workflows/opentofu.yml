@@ -3,10 +3,10 @@ name: Deploy
 on:
   push:
     branches: [main]
-    paths: ['terraform/**', 'containers/**']
+    paths: ['terraform/**', 'containers/**', '.github/workflows/**']
   pull_request:
     branches: [main]
-    paths: ['terraform/**']
+    paths: ['terraform/**', 'containers/**', '.github/workflows/**']
   schedule:
     - cron: '0 8 * * 1'
   workflow_dispatch:
@@ -286,6 +286,16 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest" -f containers/Containerfile.token-guard containers/
 
+      - name: Trivy vulnerability scan
+        if: steps.check.outputs.skip != 'true'
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+
       - name: Push image
         if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest"
@@ -320,25 +330,27 @@ jobs:
 
       - name: OpenTofu Plan
         id: plan
-        run: tofu plan -no-color -out=plan.tfplan
+        run: tofu plan -no-color -out=plan.tfplan 2>&1 | tee plan-output.txt
         continue-on-error: true
 
       - name: Post plan to PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            const output = `#### OpenTofu Plan \`${{ steps.plan.outcome }}\`
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/plan-output.txt', 'utf8').slice(0, 60000);
+            const body = `#### OpenTofu Plan \`${{ steps.plan.outcome }}\`
             <details><summary>Show Plan</summary>
 
             \`\`\`
-            ${{ steps.plan.outputs.stdout }}
+            ${plan}
             \`\`\`
             </details>`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body
             })
 
       - name: Fail if plan failed
@@ -353,9 +365,10 @@ jobs:
           retention-days: 5
 
   # ── OpenTofu Apply (push to main, after builds) ─────────────────────
-  # Sur le premier deploy les builds sont skip (registry pas encore cree).
-  # Apply cree l'infra (registries inclus) et met a jour les GitHub secrets.
-  # Au second run les builds trouvent le registry et poussent les images.
+  # Toujours apply apres les builds — meme pour des changements containers-only.
+  # Si aucun attribut Terraform n'a change, apply est un no-op rapide.
+  # Les container resources utilisent _IMAGE_HASH pour forcer le redeploy
+  # quand un Containerfile change (meme si le tag d'image est identique).
   apply:
     name: OpenTofu Apply
     needs: [detect-changes, build-caddy, build-pomerium, build-openclaw, build-openclaw-cli, build-token-guard]
@@ -363,7 +376,6 @@ jobs:
       always() &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      (needs.detect-changes.outputs.terraform == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.detect-changes.result == 'success' &&
       !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest

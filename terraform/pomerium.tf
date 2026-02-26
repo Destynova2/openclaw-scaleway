@@ -69,6 +69,8 @@ resource "scaleway_container" "pomerium" {
     INSECURE_SERVER          = "true"
     AUTHENTICATE_SERVICE_URL = "https://auth.${var.domain_name}"
     POLICY                   = local.pomerium_routes
+    # Hash du Containerfile — force le redeploy quand l'image change (meme tag)
+    _IMAGE_HASH = filesha256("${path.module}/../containers/Containerfile.pomerium")
   }
 
   secret_environment_variables = {
