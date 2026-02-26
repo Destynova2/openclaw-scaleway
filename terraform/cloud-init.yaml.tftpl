@@ -1008,6 +1008,8 @@ write_files:
       [Service]
       TimeoutStartSec=600
       Delegate=yes
+      Restart=on-failure
+      RestartSec=30s
 
       [Install]
       WantedBy=default.target
