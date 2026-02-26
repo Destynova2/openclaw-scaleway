@@ -286,6 +286,16 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest" -f containers/Containerfile.token-guard containers/
 
+      - name: Trivy vulnerability scan
+        if: steps.check.outputs.skip != 'true'
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+
       - name: Push image
         if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest"
@@ -320,25 +330,27 @@ jobs:
 
       - name: OpenTofu Plan
         id: plan
-        run: tofu plan -no-color -out=plan.tfplan
+        run: tofu plan -no-color -out=plan.tfplan 2>&1 | tee plan-output.txt
         continue-on-error: true
 
       - name: Post plan to PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            const output = `#### OpenTofu Plan \`${{ steps.plan.outcome }}\`
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/plan-output.txt', 'utf8').slice(0, 60000);
+            const body = `#### OpenTofu Plan \`${{ steps.plan.outcome }}\`
             <details><summary>Show Plan</summary>
 
             \`\`\`
-            ${{ steps.plan.outputs.stdout }}
+            ${plan}
             \`\`\`
             </details>`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body
             })
 
       - name: Fail if plan failed
