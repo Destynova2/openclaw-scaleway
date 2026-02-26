@@ -10,6 +10,19 @@ on:
   schedule:
     - cron: '0 8 * * 1'
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - destroy
+      confirm_destroy:
+        description: 'Type DESTROY to confirm (required for destroy)'
+        required: false
+        type: string
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -48,7 +61,9 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.event.inputs.action != 'destroy'
     outputs:
       caddy: ${{ steps.changes.outputs.caddy }}
       pomerium: ${{ steps.changes.outputs.pomerium }}
@@ -447,3 +462,36 @@ jobs:
               body: `Drift detected during scheduled plan.\n\n<details><summary>Plan output</summary>\n\n\`\`\`\n${drift}\n\`\`\`\n</details>`,
               labels: ['infrastructure', 'drift']
             });
+
+  # ── OpenTofu Destroy (manual only, double confirmation) ──────────
+  destroy:
+    name: OpenTofu Destroy
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.action == 'destroy' &&
+      github.event.inputs.confirm_destroy == 'DESTROY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
+        with:
+          tofu_version: "1.8"
+
+      - name: OpenTofu Init
+        run: tofu init
+
+      - name: Remove prevent_destroy resources from state
+        run: |
+          tofu state rm 'scaleway_domain_registration.grob_ninja[0]' || true
+          tofu state rm 'scaleway_account_project.openclaw' || true
+          tofu state rm 'tls_private_key.admin' || true
+          tofu state rm 'scaleway_vpc_private_network.openclaw' || true
+
+      - name: OpenTofu Destroy
+        run: tofu destroy -auto-approve
