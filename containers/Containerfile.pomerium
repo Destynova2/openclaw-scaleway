@@ -1,11 +1,13 @@
 # Image Pomerium custom — l'officielle est distroless (scan Trivy impossible)
-# NB: Alpine (musl) incompatible avec Envoy embarqué (lié contre glibc)
+# Debian slim requis : Envoy embarque est lie contre glibc (Alpine/musl incompatible)
 ARG POMERIUM_VERSION=v0.32.0
 
 FROM docker.io/pomerium/pomerium:${POMERIUM_VERSION} AS pomerium
 
-FROM docker.io/library/alpine:3.21
-RUN apk add --no-cache ca-certificates && adduser -D -u 1000 pomerium
+FROM docker.io/library/debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -r -u 1000 -m pomerium
 COPY --from=pomerium /bin/pomerium /bin/pomerium
 COPY --from=pomerium /pomerium /pomerium
 RUN chown -R 1000:1000 /pomerium
@@ -13,6 +15,5 @@ RUN chown -R 1000:1000 /pomerium
 EXPOSE 8080
 USER 1000
 
-# POLICY env var = base64-encoded routes JSON/YAML
-# Pomerium v0.32 attend POLICY (pas ROUTES) pour les routes en env var
+# POLICY env var = base64-encoded routes YAML
 ENTRYPOINT ["/bin/sh", "-c", "exec /bin/pomerium"]
