@@ -486,12 +486,19 @@ jobs:
       - name: OpenTofu Init
         run: tofu init
 
-      - name: Remove prevent_destroy resources from state
+      - name: Remove protected and CI-critical resources from state
         run: |
+          # prevent_destroy resources (survivent au destroy, reimportees ou recrees au prochain apply)
           tofu state rm 'scaleway_domain_registration.grob_ninja[0]' || true
           tofu state rm 'scaleway_account_project.openclaw' || true
           tofu state rm 'tls_private_key.admin' || true
           tofu state rm 'scaleway_vpc_private_network.openclaw' || true
+          # CI credentials — garder les cles IAM cicd et les GitHub secrets vivants
+          # pour que le provider Scaleway fonctionne et que le state puisse etre sauvegarde en S3
+          tofu state rm 'module.iam_cicd' || true
+          tofu state list 2>/dev/null | grep 'github_actions_secret' | while read -r addr; do
+            tofu state rm "$addr" || true
+          done
 
       - name: OpenTofu Destroy
         run: tofu destroy -auto-approve
