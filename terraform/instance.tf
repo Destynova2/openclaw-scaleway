@@ -5,19 +5,15 @@ resource "random_password" "gateway_token" {
 }
 
 locals {
-  cloud_init_content = templatefile("${path.module}/cloud-init.yaml.tftpl", {
+  # Templates pre-rendus pour reduire la taille de cloud-init.yaml.tftpl
+  kube_yml = templatefile("${path.module}/templates/kube.yml.tftpl", {
+    registry_endpoint       = scaleway_registry_namespace.openclaw.endpoint
     scw_api_key             = module.iam_openclaw.secret_key
     scw_project_id          = local.project_id
-    domain_name             = var.domain_name
-    admin_email             = var.admin_email
-    registry_endpoint       = scaleway_registry_namespace.openclaw.endpoint
-    registry_auth_b64       = base64encode("nologin:${module.iam_openclaw.secret_key}")
-    brave_search_api_key    = var.brave_search_api_key
-    telegram_bot_token      = var.telegram_bot_token
-    telegram_chat_id        = var.telegram_chat_id
     github_agent_token      = var.github_agent_token
     chrome_headless_version = var.chrome_headless_version
-    gateway_token           = random_password.gateway_token.result
+    telegram_bot_token      = var.telegram_bot_token
+    telegram_chat_id        = var.telegram_chat_id
     blocked_tokens = join(",", compact([
       module.iam_openclaw.secret_key,
       random_password.gateway_token.result,
@@ -25,12 +21,39 @@ locals {
       var.enable_pomerium ? var.pomerium_idp_client_secret : "",
       var.enable_monitoring ? scaleway_cockpit_token.alloy[0].secret_key : "",
     ]))
+  })
+
+  openclaw_json = templatefile("${path.module}/templates/openclaw.json.tftpl", {
+    scw_api_key          = module.iam_openclaw.secret_key
+    brave_search_api_key = var.brave_search_api_key
+    domain_name          = var.domain_name
+    gateway_token        = random_password.gateway_token.result
+    telegram_bot_token   = var.telegram_bot_token
+  })
+
+  dns_monitor_sh = templatefile("${path.module}/templates/dns-monitor.sh.tftpl", {
+    telegram_bot_token = var.telegram_bot_token
+    telegram_chat_id   = var.telegram_chat_id
+  })
+
+  reconcile_py = file("${path.module}/scripts/reconcile-config.py")
+
+  cloud_init_content = templatefile("${path.module}/cloud-init.yaml.tftpl", {
+    domain_name           = var.domain_name
+    registry_auth_b64     = base64encode("nologin:${module.iam_openclaw.secret_key}")
+    gateway_token         = random_password.gateway_token.result
+    telegram_bot_token    = var.telegram_bot_token
+    telegram_chat_id      = var.telegram_chat_id
     backup_bucket         = var.enable_backup ? scaleway_object_bucket.backup[0].name : ""
     backup_password       = var.enable_backup ? random_password.backup[0].result : ""
     backup_access_key     = var.enable_backup ? module.iam_backup[0].access_key : ""
     backup_secret_key     = var.enable_backup ? module.iam_backup[0].secret_key : ""
     cockpit_logs_push_url = var.enable_monitoring ? scaleway_cockpit_source.logs[0].push_url : ""
     cockpit_token         = var.enable_monitoring ? scaleway_cockpit_token.alloy[0].secret_key : ""
+    kube_yml              = local.kube_yml
+    openclaw_json         = local.openclaw_json
+    dns_monitor_sh        = local.dns_monitor_sh
+    reconcile_py          = local.reconcile_py
   })
 }
 

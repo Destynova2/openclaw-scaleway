@@ -1,0 +1,64 @@
+#!/bin/bash
+# dns-monitor.sh — detecte les anomalies DNS et alerte via Telegram.
+# Execute toutes les 10 minutes via cron.
+set -euo pipefail
+
+LOG="/var/log/dnsmasq-queries.log"
+STATE="/var/lib/dns-monitor"
+SEEN="$STATE/seen-domains.txt"
+ALERT_LOG="$STATE/alerts.log"
+TELEGRAM_TOKEN="${telegram_bot_token}"
+TELEGRAM_CHAT_ID="${telegram_chat_id}"
+THRESHOLD_NEW=20       # Alerte si > 20 nouveaux domaines en 10 min
+THRESHOLD_ENTROPY=3.5  # Seuil entropie pour detecter DNS tunneling
+
+mkdir -p "$STATE"
+touch "$SEEN"
+
+[ -f "$LOG" ] || exit 0
+
+# Extraire les domaines des 10 dernieres minutes
+RECENT=$(tail -5000 "$LOG" | grep -oP 'query\[\w+\] \K[^ ]+' | sort -u || true)
+[ -z "$RECENT" ] && exit 0
+
+# Trouver les nouveaux domaines (jamais vus)
+NEW=$(comm -23 <(echo "$RECENT") <(sort "$SEEN") || true)
+NEW_COUNT=$(echo "$NEW" | grep -c . || true)
+
+# Ajouter les domaines vus
+echo "$RECENT" >> "$SEEN"
+sort -u -o "$SEEN" "$SEEN"
+
+# Fonction : entropie Shannon d'une chaine
+entropy() {
+  echo "$1" | fold -w1 | sort | uniq -c | awk -v len="$${#1}" '
+    { p = $1/len; e -= p * log(p)/log(2) } END { printf "%.2f\n", e }'
+}
+
+ALERTS=""
+
+# Detection 1 : burst de nouveaux domaines
+if [ "$NEW_COUNT" -gt "$THRESHOLD_NEW" ]; then
+  ALERTS="$ALERTS\n- Burst: $NEW_COUNT nouveaux domaines en 10 min"
+fi
+
+# Detection 2 : sous-domaines haute entropie (DNS tunneling)
+while IFS= read -r domain; do
+  [ -z "$domain" ] && continue
+  subdomain=$(echo "$domain" | awk -F. '{print $1}')
+  if [ "$${#subdomain}" -gt 20 ]; then
+    e=$(entropy "$subdomain")
+    if awk "BEGIN{exit !($e > $THRESHOLD_ENTROPY)}"; then
+      ALERTS="$ALERTS\n- DNS tunnel suspect: $domain (entropie=$e)"
+    fi
+  fi
+done <<< "$NEW"
+
+# Envoyer alerte Telegram si necessaire
+if [ -n "$ALERTS" ] && [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+  MSG=$(printf "\xF0\x9F\x94\x8D dns-monitor: anomalie detectee\n$ALERTS")
+  curl -sf -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+    -d chat_id="$TELEGRAM_CHAT_ID" \
+    -d text="$MSG" > /dev/null 2>&1 || true
+  echo "$(date -Is) $ALERTS" >> "$ALERT_LOG"
+fi

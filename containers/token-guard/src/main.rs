@@ -138,14 +138,17 @@ fn alert_telegram(state: &AppState) {
         let url = url.clone();
         let chat_id = chat_id.clone();
         tokio::spawn(async move {
-            let _ = client
+            if let Err(e) = client
                 .post(&url)
                 .json(&serde_json::json!({
                     "chat_id": chat_id,
                     "text": "\u{1f6a8} token-guard: secret bloque dans un prompt LLM"
                 }))
                 .send()
-                .await;
+                .await
+            {
+                eprintln!("[WARN] telegram alert failed: {e}");
+            }
         });
     }
 }

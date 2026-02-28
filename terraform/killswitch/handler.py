@@ -1,6 +1,7 @@
 import hmac
 import json
 import os
+import sys
 import urllib.request
 
 
@@ -135,5 +136,6 @@ def _send_email(subject, text):
     try:
         with urllib.request.urlopen(req) as resp:
             pass
-    except urllib.error.HTTPError:
-        pass  # Best effort — ne pas bloquer le kill switch si l'email echoue
+    except urllib.error.HTTPError as e:
+        print(f"Email send failed: {e.code} {e.reason}", file=sys.stderr)
+        # Best effort — ne pas bloquer le kill switch si l'email echoue

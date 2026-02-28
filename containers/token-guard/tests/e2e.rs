@@ -40,7 +40,7 @@ async fn start_upstream(port: u16) -> tokio::task::JoinHandle<()> {
 }
 
 struct TokenGuardProcess {
-    child: tokio::process::Child,
+    _child: tokio::process::Child,
     port: u16,
 }
 
@@ -77,7 +77,7 @@ impl TokenGuardProcess {
             }
         }
 
-        Self { child, port }
+        Self { _child: child, port }
     }
 
     fn url(&self, path: &str) -> String {
@@ -85,19 +85,24 @@ impl TokenGuardProcess {
     }
 }
 
-impl Drop for TokenGuardProcess {
-    fn drop(&mut self) {
-        // kill_on_drop s'en occupe
-    }
+/// Setup commun : upstream mock + token-guard sans blocked_tokens.
+async fn setup() -> (tokio::task::JoinHandle<()>, TokenGuardProcess) {
+    setup_with_tokens("").await
+}
+
+/// Setup commun avec blocked_tokens personnalises.
+async fn setup_with_tokens(tokens: &str) -> (tokio::task::JoinHandle<()>, TokenGuardProcess) {
+    let up_port = free_port();
+    let upstream = start_upstream(up_port).await;
+    let guard = TokenGuardProcess::start(up_port, tokens).await;
+    (upstream, guard)
 }
 
 // --- Tests E2E ---
 
 #[tokio::test]
 async fn e2e_healthz() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let resp = reqwest::get(guard.url("/healthz")).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -106,9 +111,7 @@ async fn e2e_healthz() {
 
 #[tokio::test]
 async fn e2e_clean_prompt_forwarded() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -125,9 +128,7 @@ async fn e2e_clean_prompt_forwarded() {
 
 #[tokio::test]
 async fn e2e_blocks_github_pat() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -144,9 +145,7 @@ async fn e2e_blocks_github_pat() {
 
 #[tokio::test]
 async fn e2e_blocks_visa() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -161,9 +160,7 @@ async fn e2e_blocks_visa() {
 
 #[tokio::test]
 async fn e2e_blocks_iban() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -178,9 +175,7 @@ async fn e2e_blocks_iban() {
 
 #[tokio::test]
 async fn e2e_blocks_eth_wallet() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -195,9 +190,7 @@ async fn e2e_blocks_eth_wallet() {
 
 #[tokio::test]
 async fn e2e_blocks_exact_token() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "my-secret-uuid-1234-abcd-5678").await;
+    let (_upstream, guard) = setup_with_tokens("my-secret-uuid-1234-abcd-5678").await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -212,9 +205,7 @@ async fn e2e_blocks_exact_token() {
 
 #[tokio::test]
 async fn e2e_allows_email() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -229,9 +220,7 @@ async fn e2e_allows_email() {
 
 #[tokio::test]
 async fn e2e_blocks_btc_wallet() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -246,9 +235,7 @@ async fn e2e_blocks_btc_wallet() {
 
 #[tokio::test]
 async fn e2e_multiple_clean_requests() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     for msg in ["Hello", "Comment ca va?", "Explique le pattern observer"] {
@@ -264,9 +251,7 @@ async fn e2e_multiple_clean_requests() {
 
 #[tokio::test]
 async fn e2e_path_preserved() {
-    let up_port = free_port();
-    let _upstream = start_upstream(up_port).await;
-    let guard = TokenGuardProcess::start(up_port, "").await;
+    let (_upstream, guard) = setup().await;
 
     let client = reqwest::Client::new();
     let resp = client

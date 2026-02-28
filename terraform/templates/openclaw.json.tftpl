@@ -1,0 +1,140 @@
+{
+  "models": {
+    "providers": {
+      "scaleway": {
+        "baseUrl": "http://127.0.0.1:8081/v1",
+        "apiKey": "${scw_api_key}",
+        "api": "openai-completions",
+        "models": [
+          {"id": "mistral-small-3.2-24b-instruct-2506", "name": "Mistral Small 3.2 24B", "reasoning": false, "input": ["text", "image"], "cost": {"input": 0.15, "output": 0.35, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "devstral-2-123b-instruct-2512", "name": "Devstral 2 123B", "reasoning": false, "input": ["text"], "cost": {"input": 0.40, "output": 2.00, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "qwen3-235b-a22b-instruct-2507", "name": "Qwen3 235B", "reasoning": true, "input": ["text"], "cost": {"input": 0.75, "output": 2.25, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "deepseek-r1-distill-llama-70b", "name": "DeepSeek R1 70B", "reasoning": true, "input": ["text"], "cost": {"input": 0.90, "output": 0.90, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "gpt-oss-120b", "name": "GPT-OSS 120B", "reasoning": false, "input": ["text"], "cost": {"input": 0.15, "output": 0.60, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "llama-3.3-70b-instruct", "name": "Llama 3.3 70B", "reasoning": false, "input": ["text"], "cost": {"input": 0.90, "output": 0.90, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "qwen3-coder-30b-a3b-instruct", "name": "Qwen3 Coder 30B", "reasoning": false, "input": ["text"], "cost": {"input": 0.20, "output": 0.80, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "holo2-30b-a3b", "name": "Holo2 30B", "reasoning": false, "input": ["text"], "cost": {"input": 0.30, "output": 0.70, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "gemma-3-27b-it", "name": "Gemma 3 27B", "reasoning": false, "input": ["text", "image"], "cost": {"input": 0.25, "output": 0.50, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "pixtral-12b-2409", "name": "Pixtral 12B", "reasoning": false, "input": ["text", "image"], "cost": {"input": 0.20, "output": 0.20, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "mistral-nemo-instruct-2407", "name": "Mistral Nemo 12B", "reasoning": false, "input": ["text"], "cost": {"input": 0.20, "output": 0.20, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "voxtral-small-24b-2507", "name": "Voxtral Small 24B", "reasoning": false, "input": ["text"], "cost": {"input": 0.15, "output": 0.35, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192},
+          {"id": "llama-3.1-8b-instruct", "name": "Llama 3.1 8B", "reasoning": false, "input": ["text"], "cost": {"input": 0.20, "output": 0.20, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 131072, "maxTokens": 8192}
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "scaleway/gpt-oss-120b",
+        "fallbacks": ["scaleway/mistral-small-3.2-24b-instruct-2506", "scaleway/llama-3.1-8b-instruct"]
+      },
+      "models": {
+        "scaleway/mistral-small-3.2-24b-instruct-2506": {"alias": "mistral"},
+        "scaleway/devstral-2-123b-instruct-2512": {"alias": "devstral"},
+        "scaleway/qwen3-235b-a22b-instruct-2507": {"alias": "qwen-235b"},
+        "scaleway/deepseek-r1-distill-llama-70b": {"alias": "deepseek"},
+        "scaleway/gpt-oss-120b": {"alias": "gpt"},
+        "scaleway/llama-3.3-70b-instruct": {"alias": "llama-70b"},
+        "scaleway/qwen3-coder-30b-a3b-instruct": {"alias": "code"},
+        "scaleway/holo2-30b-a3b": {"alias": "holo"},
+        "scaleway/gemma-3-27b-it": {"alias": "gemma"},
+        "scaleway/pixtral-12b-2409": {"alias": "pixtral"},
+        "scaleway/mistral-nemo-instruct-2407": {"alias": "nemo"},
+        "scaleway/voxtral-small-24b-2507": {"alias": "voxtral"},
+        "scaleway/llama-3.1-8b-instruct": {"alias": "llama"}
+      },
+      "subagents": {
+        "model": "scaleway/llama-3.1-8b-instruct"
+      },
+      "compaction": {"mode": "safeguard"},
+      "memorySearch": {
+        "enabled": true,
+        "provider": "openai",
+        "model": "bge-multilingual-gemma2",
+        "remote": {
+          "baseUrl": "http://127.0.0.1:8081/v1",
+          "headers": {
+            "Authorization": "Bearer ${scw_api_key}"
+          }
+        },
+        "sources": ["memory", "sessions"],
+        "query": {
+          "hybrid": {
+            "enabled": true,
+            "vectorWeight": 0.7,
+            "textWeight": 0.3
+          }
+        }
+      }
+    }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "brave",
+        "apiKey": "${brave_search_api_key}"
+      }
+    },
+    "media": {
+      "audio": {
+        "enabled": true,
+        "maxBytes": 20971520,
+        "models": [
+          {"provider": "openai", "model": "whisper-large-v3"}
+        ]
+      }
+    }
+  },
+  "commands": {"native": "auto", "nativeSkills": "auto"},
+  "messages": {
+    "tts": {
+      "auto": "always",
+      "provider": "edge",
+      "edge": {
+        "voice": "fr-FR-HenriNeural"
+      }
+    }
+  },
+  "gateway": {
+    "bind": "loopback",
+    "controlUi": {
+      "allowedOrigins": ["https://app.${domain_name}"]
+    },
+    "trustedProxies": ["127.0.0.1"],
+    "auth": {
+      "mode": "token",
+      "token": "${gateway_token}"
+    },
+    "nodes": {
+      "browser": {
+        "mode": "auto"
+      }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "${telegram_bot_token}"
+    }
+  },
+  "browser": {
+    "enabled": true,
+    "headless": true,
+    "defaultProfile": "chrome",
+    "profiles": {
+      "chrome": {
+        "cdpUrl": "http://127.0.0.1:9222",
+        "color": "#4285F4"
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      }
+    }
+  }
+}

@@ -1,3 +1,6 @@
+//! Sidecar binary that watches `/config/devices/pending.json` via inotify
+//! and auto-approves CLI device-pairing requests by moving them to `paired.json`.
+
 use inotify::{Inotify, WatchMask};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,7 +42,9 @@ fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis() as u64
+        .as_millis()
+        .try_into()
+        .expect("timestamp fits u64")
 }
 
 fn load_json<T: serde::de::DeserializeOwned>(path: impl AsRef<Path>) -> Option<T> {
@@ -127,6 +132,7 @@ fn is_pending_json_event(event: &inotify::Event<&OsStr>) -> bool {
 
 fn wait_for_directory(path: &str) {
     while !Path::new(path).exists() {
+        eprintln!("autopair: waiting for {path}...");
         thread::sleep(DIR_POLL_INTERVAL);
     }
 }

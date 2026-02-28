@@ -1,0 +1,253 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: openclaw
+  labels:
+    app: openclaw
+spec:
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+    runAsUser: 1000
+    runAsGroup: 1000
+    sysctls:
+      - name: net.ipv4.ip_unprivileged_port_start
+        value: "80"
+  containers:
+    - name: openclaw
+      image: ${registry_endpoint}/openclaw-tools:latest
+      ports:
+        - containerPort: 18789
+      env:
+        - name: PATH
+          value: "/home/node/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        - name: NPM_CONFIG_PREFIX
+          value: "/home/node/.local"
+        - name: PIP_USER
+          value: "1"
+        - name: PYTHONUSERBASE
+          value: "/home/node/.local"
+        - name: NPM_CONFIG_CACHE
+          value: "/home/node/.local/.npm-cache"
+        - name: GH_TOKEN
+          value: "${github_agent_token}"
+        - name: OPENAI_API_KEY
+          value: "${scw_api_key}"
+        - name: OPENAI_BASE_URL
+          value: "http://127.0.0.1:8081/v1"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      livenessProbe:
+        tcpSocket:
+          port: 18789
+        initialDelaySeconds: 15
+        periodSeconds: 30
+      readinessProbe:
+        tcpSocket:
+          port: 18789
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      volumeMounts:
+        - name: openclaw-config
+          mountPath: /home/node/.openclaw
+        - name: openclaw-local
+          mountPath: /home/node/.local
+        - name: openclaw-cache
+          mountPath: /home/node/.cache
+        - name: tmp-openclaw
+          mountPath: /tmp
+      resources:
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+
+    # Chrome headless pour le browser agent (CDP sur localhost:9222)
+    # Image ultra-legere (~100 Mo) dediee au Chrome DevTools Protocol
+    - name: chrome
+      image: docker.io/chromedp/headless-shell:${chrome_headless_version}
+      ports:
+        - containerPort: 9222
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      livenessProbe:
+        httpGet:
+          path: /json/version
+          port: 9222
+        initialDelaySeconds: 5
+        periodSeconds: 30
+      readinessProbe:
+        httpGet:
+          path: /json/version
+          port: 9222
+        initialDelaySeconds: 3
+        periodSeconds: 10
+      volumeMounts:
+        - name: tmp-chrome
+          mountPath: /tmp
+        - name: chrome-data
+          mountPath: /headless-shell-data
+      resources:
+        limits:
+          memory: "512Mi"
+          cpu: "1"
+
+    # CLI OpenClaw — sidecar pour interagir avec le gateway en ligne de commande
+    # Usage : podman exec openclaw-cli openclaw gateway status --url ws://localhost:18789
+    - name: cli
+      image: ${registry_endpoint}/openclaw-cli:latest
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: openclaw-config
+          mountPath: /home/node/.openclaw
+          readOnly: true
+        - name: cli-identity
+          mountPath: /home/node/.openclaw/identity
+        - name: tmp-cli
+          mountPath: /tmp
+      resources:
+        limits:
+          memory: "128Mi"
+          cpu: "0.5"
+
+    # Auto-pair — watch pending.json et auto-approve le CLI sidecar.
+    # Binaire Rust statique, inotify, FROM scratch, ~2MB RAM.
+    - name: autopair
+      image: ${registry_endpoint}/autopair:latest
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: openclaw-config
+          mountPath: /config
+      resources:
+        limits:
+          memory: "16Mi"
+          cpu: "0.1"
+
+    # DLP proxy — scanne les prompts LLM pour bloquer les fuites de tokens.
+    # Binaire Rust statique (~5MB), FROM scratch, ~3MB RAM.
+    - name: token-guard
+      image: ${registry_endpoint}/token-guard:latest
+      env:
+        - name: UPSTREAM_URL
+          value: "https://api.scaleway.ai/${scw_project_id}"
+        - name: LISTEN_ADDR
+          value: "127.0.0.1:8081"
+        - name: TELEGRAM_BOT_TOKEN
+          value: "${telegram_bot_token}"
+        - name: TELEGRAM_CHAT_ID
+          value: "${telegram_chat_id}"
+        - name: BLOCKED_TOKENS
+          value: "${blocked_tokens}"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: 8081
+        initialDelaySeconds: 3
+        periodSeconds: 30
+      resources:
+        limits:
+          memory: "32Mi"
+          cpu: "0.25"
+
+    # Tag :latest intentionnel — image custom construite dans notre registre prive
+    # (Containerfile.caddy → build-caddy.yml → push vers ce registre).
+    # Le suivi de version se fait via Renovate sur xcaddy et caddy-ratelimit.
+    - name: caddy
+      image: ${registry_endpoint}/caddy-ratelimit:latest
+      ports:
+        - containerPort: 443
+          hostPort: 443
+        - containerPort: 80
+          hostPort: 80
+        - containerPort: 3000
+          hostPort: 3000
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      livenessProbe:
+        tcpSocket:
+          port: 80
+        initialDelaySeconds: 10
+        periodSeconds: 30
+      readinessProbe:
+        tcpSocket:
+          port: 80
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      volumeMounts:
+        - name: caddyfile
+          mountPath: /etc/caddy
+        - name: caddy-data
+          mountPath: /data
+        - name: caddy-config
+          mountPath: /config
+        - name: tmp-caddy
+          mountPath: /tmp
+      resources:
+        limits:
+          memory: "128Mi"
+          cpu: "1"
+
+  volumes:
+    - name: openclaw-config
+      hostPath:
+        path: /home/openclaw/config
+        type: Directory
+    - name: caddyfile
+      hostPath:
+        path: /home/openclaw/caddy
+        type: Directory
+    - name: caddy-data
+      hostPath:
+        path: /home/openclaw/caddy-data
+        type: DirectoryOrCreate
+    - name: caddy-config
+      hostPath:
+        path: /home/openclaw/caddy-config
+        type: DirectoryOrCreate
+    - name: openclaw-local
+      hostPath:
+        path: /home/openclaw/local
+        type: DirectoryOrCreate
+    - name: openclaw-cache
+      hostPath:
+        path: /home/openclaw/cache
+        type: DirectoryOrCreate
+    - name: tmp-openclaw
+      emptyDir:
+        medium: Memory
+    - name: tmp-caddy
+      emptyDir:
+        medium: Memory
+    - name: tmp-cli
+      emptyDir:
+        medium: Memory
+    - name: tmp-chrome
+      emptyDir:
+        medium: Memory
+    - name: chrome-data
+      emptyDir: {}
+    - name: cli-identity
+      hostPath:
+        path: /home/openclaw/cli-identity
+        type: DirectoryOrCreate
