@@ -10,3 +10,7 @@ CVE-2026-27699
 # ImageMagick arbitrary code execution via crafted XBM in upstream OpenClaw base image
 # Fixed in deb12u6, waiting for upstream ghcr.io/openclaw/openclaw to update
 CVE-2026-23876
+
+# OpenSSL RCE/DoS in upstream OpenClaw base image (libssl-dev 3.0.18-1~deb12u1)
+# Fixed in deb12u2, waiting for upstream ghcr.io/openclaw/openclaw to update
+CVE-2025-15467
