@@ -1,8 +1,11 @@
 FROM docker.io/node:22-alpine
 
+# renovate: datasource=npm depName=openclaw
+ARG OPENCLAW_VERSION=2026.2.26
+
 # --ignore-scripts : skip node-llama-cpp native build (inutile en mode CLI remote)
 RUN apk add --no-cache git && \
-    npm install -g openclaw@latest --ignore-scripts && \
+    npm install -g openclaw@${OPENCLAW_VERSION} --ignore-scripts && \
     npm cache clean --force && \
     apk del git
 
