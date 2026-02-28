@@ -12,6 +12,7 @@ crash.log
 terraform/killswitch/handler.zip
 containers/token-guard/target/
 containers/autopair/target/
+__pycache__/
 
 # Secrets
 .env
