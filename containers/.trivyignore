@@ -2,3 +2,7 @@
 # These are downloaded from upstream GitHub releases — we cannot recompile them.
 # Will be resolved when upstream projects rebuild with Go >= 1.25.7
 CVE-2025-68121
+
+# basic-ftp path traversal in upstream OpenClaw base image (ghcr.io/openclaw/openclaw)
+# Fixed in basic-ftp 5.2.0, waiting for upstream OpenClaw release to include the fix
+CVE-2026-27699
