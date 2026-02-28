@@ -70,6 +70,7 @@ jobs:
       openclaw: ${{ steps.changes.outputs.openclaw }}
       openclaw_cli: ${{ steps.changes.outputs.openclaw_cli }}
       token_guard: ${{ steps.changes.outputs.token_guard }}
+      autopair: ${{ steps.changes.outputs.autopair }}
       terraform: ${{ steps.changes.outputs.terraform }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -82,7 +83,7 @@ jobs:
           # workflow_dispatch ou premier push : tout rebuilder
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || \
              [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            for key in caddy pomerium openclaw openclaw_cli token_guard terraform; do
+            for key in caddy pomerium openclaw openclaw_cli token_guard autopair terraform; do
               echo "$key=true" >> "$GITHUB_OUTPUT"
             done
             exit 0
@@ -93,6 +94,7 @@ jobs:
           echo "openclaw=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.openclaw|\.trivyignore)$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "openclaw_cli=$(echo "$CHANGED" | grep -q '^containers/Containerfile\.openclaw-cli$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "token_guard=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.token-guard|token-guard/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "autopair=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.autopair|autopair/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "terraform=$(echo "$CHANGED" | grep -q '^terraform/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   # ── Container builds (parallel) ─────────────────────────────────────
@@ -315,6 +317,48 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/token-guard:latest"
 
+  build-autopair:
+    name: Build Autopair
+    needs: detect-changes
+    if: needs.detect-changes.outputs.autopair == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check registry endpoint
+        id: check
+        run: |
+          if [ -z "$REGISTRY" ]; then
+            echo "::notice::Registry endpoint not configured — skipping (first deploy)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          REGISTRY: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: steps.check.outputs.skip != 'true'
+
+      - name: Login to Scaleway Container Registry
+        if: steps.check.outputs.skip != 'true'
+        run: echo "${{ secrets.SCW_SECRET_KEY }}" | docker login "${{ secrets.SCW_REGISTRY_ENDPOINT }}" -u "${{ secrets.SCW_ACCESS_KEY }}" --password-stdin
+
+      - name: Build image
+        if: steps.check.outputs.skip != 'true'
+        run: docker build -t "${{ secrets.SCW_REGISTRY_ENDPOINT }}/autopair:latest" -f containers/Containerfile.autopair containers/
+
+      - name: Trivy vulnerability scan
+        if: steps.check.outputs.skip != 'true'
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: '${{ secrets.SCW_REGISTRY_ENDPOINT }}/autopair:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          ignore-unfixed: true
+
+      - name: Push image
+        if: steps.check.outputs.skip != 'true'
+        run: docker push "${{ secrets.SCW_REGISTRY_ENDPOINT }}/autopair:latest"
+
   # ── OpenTofu Plan (PRs only) ────────────────────────────────────────
   plan:
     name: OpenTofu Plan
@@ -386,7 +430,7 @@ jobs:
   # quand un Containerfile change (meme si le tag d'image est identique).
   apply:
     name: OpenTofu Apply
-    needs: [detect-changes, build-caddy, build-pomerium, build-openclaw, build-openclaw-cli, build-token-guard]
+    needs: [detect-changes, build-caddy, build-pomerium, build-openclaw, build-openclaw-cli, build-token-guard, build-autopair]
     if: >-
       always() &&
       github.ref == 'refs/heads/main' &&

@@ -1,0 +1,11 @@
+FROM docker.io/rust:1-alpine AS builder
+RUN apk add --no-cache musl-dev
+WORKDIR /build
+COPY autopair/Cargo.toml ./
+COPY autopair/src/ src/
+RUN cargo build --release
+
+FROM scratch
+COPY --from=builder /build/target/release/autopair /autopair
+USER 1000
+ENTRYPOINT ["/autopair"]

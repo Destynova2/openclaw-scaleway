@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [caddy-ratelimit, openclaw-tools, openclaw-cli]
+        image: [caddy-ratelimit, openclaw-tools, openclaw-cli, autopair]
     env:
       REGISTRY_ENDPOINT: ${{ secrets.SCW_REGISTRY_ENDPOINT }}
     steps:

@@ -11,6 +11,7 @@ crash.log
 # Build artifacts
 terraform/killswitch/handler.zip
 containers/token-guard/target/
+containers/autopair/target/
 
 # Secrets
 .env
@@ -19,3 +20,4 @@ containers/token-guard/target/
 
 # Claude Code local settings (contient des patterns avec credentials)
 .claude/settings.local.json
+.DS_Store

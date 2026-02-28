@@ -20,6 +20,10 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.7"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
   required_version = ">= 1.8"
 
