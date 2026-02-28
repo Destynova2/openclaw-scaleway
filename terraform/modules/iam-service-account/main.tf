@@ -1,3 +1,11 @@
+# iam-service-account — Reusable module for Scaleway IAM service accounts.
+#
+# Creates an IAM application with a primary API key, optional extra API keys,
+# and a policy with dynamic permission rules (project or organization scoped).
+#
+# Used by: iam.tf (openclaw, cicd, killswitch), backup.tf (backup)
+# Key injected into: kube.yml.tftpl (openclaw), cloud-init (cicd, backup), handler.py (killswitch)
+
 terraform {
   required_providers {
     scaleway = {

@@ -4,13 +4,14 @@
 # Fonctionnement :
 #   - Cron toutes les heures → appel Billing API (conso projet openclaw)
 #   - Si conso >= var.killswitch_budget_eur (defaut 15 EUR, min 13) → poweroff instance
-#   - Invocation manuelle via HTTP toujours possible (Bearer token ou ?token=)
+#   - Invocation manuelle via HTTP toujours possible (protege par token Bearer ou ?token=)
 #
 # Alerte email automatique a (budget - 3) EUR, poweroff a budget EUR.
 #
 # Test manuel :
 #   tofu output -raw killswitch_webhook_url | xargs curl
 #
+# Tests : cd killswitch && python3 -m unittest test_handler
 # Desactiver : enable_killswitch = false
 # -----------------------------------------------------------------------
 

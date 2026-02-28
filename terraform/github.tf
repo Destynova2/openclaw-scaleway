@@ -1,5 +1,6 @@
 # --- GitHub Actions Secrets (optionnel, conditionne par github_token) ---
-# Les cles sont non-sensibles (for_each interdit les valeurs sensibles).
+# nonsensitive() needed: OpenTofu propagates sensitivity to booleans derived
+# from sensitive variables, but for_each keys must be non-sensitive.
 # Les valeurs sont sensibles et resolues via lookup.
 
 locals {

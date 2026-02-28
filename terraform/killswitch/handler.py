@@ -1,3 +1,9 @@
+"""Kill switch handler for Scaleway Serverless Functions.
+
+Packaged and deployed by ``terraform/killswitch.tf``. Runs hourly via cron
+to check project billing and power off the instance if the budget threshold
+is exceeded.
+"""
 import hmac
 import json
 import os
@@ -6,11 +12,31 @@ import urllib.request
 
 
 def handler(event, context):
-    # Cron trigger : pas de httpMethod → verification conso automatique
+    """Dispatches between cron and HTTP triggers.
+
+    Cron triggers (no ``httpMethod``) run the automatic billing check.
+    HTTP triggers require Bearer or query-param token authentication
+    and force an immediate poweroff.
+
+    Args:
+        event: Scaleway Serverless event dict. Cron triggers omit ``httpMethod``.
+            HTTP triggers include ``httpMethod``, ``headers``, and optionally
+            ``queryStringParameters``.
+        context: Scaleway Serverless context (unused).
+
+    Returns:
+        Dict with ``statusCode`` (int) and ``body`` (str).
+        200: billing check completed (poweroff may or may not have occurred).
+        403: HTTP trigger with invalid or missing token.
+
+    Environment:
+        KILLSWITCH_TOKEN: Required for HTTP trigger authentication.
+    """
+    # Cron trigger: no httpMethod → automatic billing check
     if "httpMethod" not in event:
         return _check_billing_and_poweroff()
 
-    # HTTP trigger : authentification requise (Bearer ou query param)
+    # HTTP trigger: token authentication required (Bearer or query param)
     expected_token = os.environ["KILLSWITCH_TOKEN"]
     headers = event.get("headers", {})
 
@@ -30,9 +56,29 @@ def handler(event, context):
 
 
 def _check_billing_and_poweroff():
-    """Verifie la conso du projet et agit selon les seuils."""
+    """Checks project billing and enforces budget thresholds.
+
+    Sends a warning email at the alert threshold and powers off the instance
+    at the budget threshold.
+
+    Returns:
+        Dict with ``statusCode`` and ``body``. Status 200 on success (regardless
+        of whether poweroff was triggered). Non-200 if the Billing API call fails.
+
+    Raises:
+        KeyError: If ``BILLING_PROJECT_ID`` or ``SCW_SECRET_KEY`` is not set.
+            Also propagated from ``_poweroff()`` if ``SERVER_ID`` is missing.
+        ValueError: If ``BUDGET_THRESHOLD_EUR`` or ``ALERT_THRESHOLD_EUR`` is not a valid number.
+
+    Environment:
+        BILLING_PROJECT_ID: Scaleway project to check.
+        SCW_SECRET_KEY: API authentication key.
+        BUDGET_THRESHOLD_EUR: Poweroff threshold in EUR (default: 13).
+        ALERT_THRESHOLD_EUR: Warning email threshold in EUR (default: 10).
+    """
     project_id = os.environ["BILLING_PROJECT_ID"]
     secret_key = os.environ["SCW_SECRET_KEY"]
+    # Defaults are fallbacks — production values are injected by killswitch.tf
     threshold_eur = float(os.environ.get("BUDGET_THRESHOLD_EUR", "13"))
     alert_eur = float(os.environ.get("ALERT_THRESHOLD_EUR", "10"))
 
@@ -47,7 +93,7 @@ def _check_billing_and_poweroff():
         body = e.read().decode()
         return {"statusCode": e.code, "body": f"Billing API error: {body}"}
 
-    # Calculer la conso totale du projet
+    # Sum all consumption entries for the project
     total_eur = 0.0
     for c in data.get("consumptions", []):
         value = c.get("value", {})
@@ -88,7 +134,19 @@ def _check_billing_and_poweroff():
 
 
 def _poweroff():
-    """Eteint l'instance via l'API Scaleway."""
+    """Powers off the instance via the Scaleway Instance API.
+
+    Returns:
+        Dict with ``statusCode`` and ``body``.
+
+    Raises:
+        KeyError: If ``SERVER_ID`` or ``SCW_SECRET_KEY`` is not set.
+
+    Environment:
+        SERVER_ID: Scaleway instance ID to power off.
+        SCW_SECRET_KEY: API authentication key.
+        SCW_DEFAULT_ZONE: Instance zone (default ``fr-par-1``).
+    """
     server_id = os.environ["SERVER_ID"]
     zone = os.environ.get("SCW_DEFAULT_ZONE", "fr-par-1")
     secret_key = os.environ["SCW_SECRET_KEY"]
@@ -109,7 +167,21 @@ def _poweroff():
 
 
 def _send_email(subject, text):
-    """Envoie un email via Scaleway TEM API (best effort)."""
+    """Sends an alert email via Scaleway TEM API.
+
+    Errors are logged to stderr but swallowed (best effort) to avoid
+    blocking the kill switch if the email service is unavailable.
+
+    Args:
+        subject: Email subject line.
+        text: Plain-text email body.
+
+    Environment:
+        SCW_SECRET_KEY: API authentication key.
+        ADMIN_EMAIL: Recipient email address.
+        DOMAIN_NAME: Sender domain (``killswitch@<domain>``).
+        BILLING_PROJECT_ID: TEM project scope.
+    """
     secret_key = os.environ["SCW_SECRET_KEY"]
     admin_email = os.environ["ADMIN_EMAIL"]
     domain_name = os.environ["DOMAIN_NAME"]
@@ -138,4 +210,4 @@ def _send_email(subject, text):
             pass
     except urllib.error.HTTPError as e:
         print(f"Email send failed: {e.code} {e.reason}", file=sys.stderr)
-        # Best effort — ne pas bloquer le kill switch si l'email echoue
+        # Best effort — don't block the kill switch if email fails

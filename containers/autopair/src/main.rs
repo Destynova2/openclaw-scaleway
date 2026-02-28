@@ -1,5 +1,6 @@
-//! Sidecar binary that watches `/config/devices/pending.json` via inotify
-//! and auto-approves CLI device-pairing requests by moving them to `paired.json`.
+//! Auto-approves CLI device-pairing requests by watching `pending.json` via inotify.
+//! Deployed as a sidecar in the OpenClaw pod alongside token-guard and the CLI container.
+//! Built via `containers/Containerfile.autopair`, configured in `terraform/templates/kube.yml.tftpl`.
 
 use inotify::{Inotify, WatchMask};
 use serde::{Deserialize, Serialize};
@@ -14,17 +15,23 @@ const DEVICES_DIR: &str = "/config/devices";
 const PENDING_FILE: &str = "/config/devices/pending.json";
 const PAIRED_FILE: &str = "/config/devices/paired.json";
 const CLIENT_ID: &str = "cli";
+/// Buffer for inotify events — 1024 bytes covers several events per read cycle.
 const INOTIFY_BUF_SIZE: usize = 1024;
 const DIR_POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// Debounce after inotify write event — the CLI writes pending.json in multiple steps.
 const WRITE_DEBOUNCE: Duration = Duration::from_millis(200);
 const ERROR_BACKOFF: Duration = Duration::from_secs(5);
 
+/// Map of device IDs to their registration entries.
 type Devices = HashMap<String, DeviceEntry>;
 
+/// A pending or paired device registration entry.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct DeviceEntry {
+    /// Unique identifier for the device client (e.g., "cli").
     client_id: Option<String>,
+    /// Unix timestamp in milliseconds when the device was approved. `None` while pending.
     #[serde(skip_serializing_if = "Option::is_none")]
     approved_at_ms: Option<u64>,
     /// Captures unknown JSON fields for forward-compatibility with future schema changes.
@@ -38,6 +45,7 @@ impl DeviceEntry {
     }
 }
 
+/// Returns the current time as Unix milliseconds.
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -47,6 +55,7 @@ fn now_ms() -> u64 {
         .expect("timestamp fits u64")
 }
 
+/// Loads and deserializes a JSON file. Returns `None` if the file is missing or malformed.
 fn load_json<T: serde::de::DeserializeOwned>(path: impl AsRef<Path>) -> Option<T> {
     let path = path.as_ref();
     let data = fs::read_to_string(path).ok()?;
@@ -59,7 +68,10 @@ fn load_json<T: serde::de::DeserializeOwned>(path: impl AsRef<Path>) -> Option<T
     }
 }
 
-/// Writes content to path atomically via a tmp file + rename to prevent partial reads.
+/// Writes `content` to `path` atomically via a temporary file and rename.
+///
+/// # Errors
+/// Returns an error if the temporary file cannot be written or renamed.
 fn write_atomic(path: impl AsRef<Path>, content: &str) -> std::io::Result<()> {
     let path = path.as_ref();
     let mut tmp_os = path.as_os_str().to_os_string();
@@ -72,10 +84,14 @@ fn write_atomic(path: impl AsRef<Path>, content: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Returns `true` if the device map contains an entry with `CLIENT_ID`.
 fn has_cli_entry(devices: &Devices) -> bool {
     devices.values().any(DeviceEntry::is_cli)
 }
 
+/// Moves the CLI entry from `pending` to `paired`, setting `approved_at_ms` to now.
+///
+/// Returns `None` if no CLI entry exists in `pending`.
 fn approve_cli(pending: &mut Devices, paired: &mut Devices) -> Option<String> {
     let key = pending
         .iter()
@@ -88,6 +104,7 @@ fn approve_cli(pending: &mut Devices, paired: &mut Devices) -> Option<String> {
     Some(key)
 }
 
+/// Reads pending/paired files, approves the CLI if present and not already paired, and writes back.
 fn try_approve(pending_path: &Path, paired_path: &Path) {
     // Already paired — nothing to do
     if load_json::<Devices>(paired_path).is_some_and(|p| has_cli_entry(&p)) {
@@ -123,6 +140,7 @@ fn try_approve(pending_path: &Path, paired_path: &Path) {
     eprintln!("autopair: CLI paired (deviceId={key})");
 }
 
+/// Returns `true` if the inotify event targets `pending.json`.
 fn is_pending_json_event(event: &inotify::Event<&OsStr>) -> bool {
     event
         .name
@@ -130,6 +148,7 @@ fn is_pending_json_event(event: &inotify::Event<&OsStr>) -> bool {
         .is_some_and(|name| name == "pending.json")
 }
 
+/// Blocks until the given directory path exists, polling every `DIR_POLL_INTERVAL`.
 fn wait_for_directory(path: &str) {
     while !Path::new(path).exists() {
         eprintln!("autopair: waiting for {path}...");
@@ -137,6 +156,7 @@ fn wait_for_directory(path: &str) {
     }
 }
 
+/// Main inotify loop: watches the devices directory and auto-approves on each `pending.json` write.
 fn run_event_loop(mut inotify: Inotify) {
     let pending = Path::new(PENDING_FILE);
     let paired = Path::new(PAIRED_FILE);
@@ -158,6 +178,7 @@ fn run_event_loop(mut inotify: Inotify) {
     }
 }
 
+/// Watches the devices directory and auto-approves CLI pairing requests.
 fn main() {
     eprintln!("autopair: watching {DEVICES_DIR} for pending CLI connections");
 

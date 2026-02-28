@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::sleep;
 
+/// Binds to port 0 and returns the OS-assigned ephemeral port number.
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -39,6 +40,7 @@ async fn start_upstream(port: u16) -> tokio::task::JoinHandle<()> {
     })
 }
 
+/// Handle to a running `token-guard` process, killed on drop via `kill_on_drop`.
 struct TokenGuardProcess {
     _child: tokio::process::Child,
     port: u16,

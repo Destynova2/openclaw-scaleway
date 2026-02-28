@@ -1,4 +1,4 @@
-# --- Restic backups vers S3 (chiffre, retention 7j/4w/12m) ---
+# --- Restic backups vers S3 (chiffrement restic, expiration S3 365j, retention restic: 7j/4w/12m) ---
 # Desactiver : enable_backup = false
 
 resource "random_password" "backup" {

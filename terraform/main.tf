@@ -1,3 +1,13 @@
+# -----------------------------------------------------------------------
+# OpenClaw on Scaleway — main configuration
+#
+# Creates an isolated Scaleway project and configures providers (Scaleway,
+# GitHub, TLS, Random, Archive) for deploying the OpenClaw agent stack.
+#
+# State: encrypted client-side (PBKDF2 + AES-GCM) in S3 backend.
+# See CLAUDE.md for deployment instructions.
+# -----------------------------------------------------------------------
+
 terraform {
   required_providers {
     scaleway = {

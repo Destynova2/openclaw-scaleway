@@ -1,3 +1,14 @@
+# -----------------------------------------------------------------------
+# Instance reconciliation — reboots the instance when cloud-init changes.
+#
+# cloud-init only runs on first boot. When OpenTofu detects a change in
+# cloud-init content (templates, config files), this null_resource triggers
+# a reboot so the reconcile-config.py per-boot script picks up the new
+# metadata and updates on-disk files.
+#
+# The 5s sleep avoids racing with the Scaleway API (instance state must
+# settle after user_data update before accepting a reboot action).
+# -----------------------------------------------------------------------
 resource "null_resource" "instance_reconcile" {
   triggers = {
     cloud_init_hash = sha256(local.cloud_init_content)

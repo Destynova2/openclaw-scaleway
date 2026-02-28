@@ -1,3 +1,7 @@
+# dns-scaleway — Creates DNS records via Scaleway Domains.
+# Interface-compatible with dns-ovh for registrar portability.
+# Called from: dns.tf. See also: ../dns-ovh/
+
 terraform {
   required_providers {
     scaleway = {

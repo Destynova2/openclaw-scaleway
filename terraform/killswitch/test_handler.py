@@ -1,4 +1,4 @@
-"""Unit tests for the kill switch handler."""
+"""Unit tests for ``killswitch/handler.py``."""
 
 import io
 import json
@@ -15,7 +15,7 @@ import handler
 
 
 def _make_billing_response(consumptions):
-    """Build a mock Billing API JSON response from a list of (units, nanos) tuples."""
+    """Builds a mock Billing API JSON response from a list of (units, nanos) tuples."""
     items = []
     for units, nanos in consumptions:
         items.append({"value": {"units": str(units), "nanos": str(nanos)}})
@@ -23,7 +23,7 @@ def _make_billing_response(consumptions):
 
 
 def _mock_urlopen_factory(response_bytes, status=200):
-    """Return a context-manager mock that behaves like urllib.request.urlopen."""
+    """Returns a context-manager mock that behaves like urllib.request.urlopen."""
     cm = MagicMock()
     cm.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=response_bytes)))
     cm.__exit__ = MagicMock(return_value=False)
@@ -98,7 +98,7 @@ class TestBillingThresholds(unittest.TestCase):
     """Test the exact boundary conditions at 10 EUR (warning) and 13 EUR (poweroff)."""
 
     def _run_with_total(self, total_eur, mock_urlopen, mock_send_email):
-        """Helper: set up a single consumption entry that sums to total_eur."""
+        """Sets up a single consumption entry summing to total_eur and returns the handler result."""
         units = int(total_eur)
         nanos = int(round((total_eur - units) * 1_000_000_000))
         mock_urlopen.return_value = _mock_urlopen_factory(

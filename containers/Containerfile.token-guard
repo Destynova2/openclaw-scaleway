@@ -1,3 +1,6 @@
+# token-guard — DLP reverse proxy (~3 MB, scratch-based).
+# Scans LLM prompts for leaked secrets. See containers/token-guard/src/main.rs.
+# Build: podman build -t token-guard -f Containerfile.token-guard containers/
 FROM docker.io/rust:1-alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /build

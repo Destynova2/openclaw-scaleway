@@ -15,6 +15,7 @@ resource "scaleway_iam_ssh_key" "admin" {
 }
 
 # --- OpenClaw Agent IAM (moindre privilege — GenAI uniquement) ---
+# Key injected into kube.yml.tftpl via instance.tf locals
 
 module "iam_openclaw" {
   source      = "./modules/iam-service-account"

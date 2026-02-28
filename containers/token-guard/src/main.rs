@@ -1,6 +1,11 @@
-// token-guard — DLP reverse proxy for OpenClaw LLM API calls.
-// Scans outgoing prompts for leaked secrets and blocks them.
-// ~3MB RAM, <1ms overhead, zero-copy response streaming (SSE).
+//! DLP reverse proxy for OpenClaw LLM API calls.
+//!
+//! Scans outgoing prompts for leaked secrets (API keys, PEM keys, credit cards,
+//! IBAN, crypto wallets) and blocks them before they reach the upstream LLM API.
+//! ~3 MB RAM, <1 ms overhead, zero-copy response streaming (SSE).
+//!
+//! Built via `containers/Containerfile.token-guard`, configured in
+//! `terraform/instance.tf` (kube.yml template).
 
 use axum::{body::Body, extract::State, response::Response, Router};
 use http::StatusCode;
@@ -9,17 +14,31 @@ use regex::RegexSet;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
+/// Shared application state holding the upstream URL, secret patterns, and alert configuration.
 struct AppState {
+    /// HTTP client reused across all proxy requests.
     client: reqwest::Client,
+    /// Compiled regex set from [`TOKEN_PATTERNS`], matching known secret formats.
     patterns: RegexSet,
+    /// Exact strings to block (e.g., Scaleway secret keys with no regex pattern). Min length 8.
     exact_tokens: Vec<String>,
+    /// Base URL of the upstream LLM API (no trailing slash).
     upstream: String,
+    /// Pre-built Telegram sendMessage URL, `None` if alerting is disabled.
     telegram_url: Option<String>,
+    /// Telegram chat ID for alert messages.
     telegram_chat_id: Option<String>,
 }
 
-// Patterns de tokens qui ne doivent JAMAIS apparaitre dans un prompt LLM.
-// Couvre les principaux providers cloud, VCS et services SaaS.
+/// Regex patterns matching secrets that must never appear in an LLM prompt.
+///
+/// Covers cloud providers (AWS, Scaleway, Google, DigitalOcean), VCS tokens
+/// (GitHub, GitLab), SaaS API keys (OpenAI, Stripe, Slack, Telegram, Vault),
+/// PEM private keys, credit cards (Visa, Mastercard, Amex, Discover, JCB),
+/// IBAN, and crypto wallets (ETH, BTC, XMR).
+///
+/// Email patterns are intentionally excluded due to high false positive rates
+/// in system prompts and normal discussion content.
 const TOKEN_PATTERNS: &[&str] = &[
     // Cloud providers
     r"AKIA[A-Z0-9]{16}",                  // AWS access key
@@ -51,9 +70,18 @@ const TOKEN_PATTERNS: &[&str] = &[
     r"\b0x[a-fA-F0-9]{40}\b",                                 // Ethereum (ETH)
     r"\b(?:bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\b",            // Bitcoin (BTC)
     r"\b4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}\b",                // Monero (XMR)
-    // NB: email retire — trop de faux positifs (system prompts, configs, discussions normales)
 ];
 
+/// Scans the request body for leaked secrets and either forwards to the upstream or returns 403.
+///
+/// Requests to `/healthz` bypass scanning and return 200 immediately.
+///
+/// # Errors
+/// - 400: request body could not be read
+/// - 403: a secret pattern or exact token was detected in the body
+/// - 502: the upstream request failed
+///
+/// Non-UTF8 bytes are replaced with U+FFFD before scanning (lossy conversion).
 async fn proxy(
     State(state): State<Arc<AppState>>,
     req: http::Request<Body>,
@@ -62,12 +90,12 @@ async fn proxy(
         return Response::builder()
             .status(StatusCode::OK)
             .body(Body::from("ok"))
-            .unwrap();
+            .expect("static response is valid");
     }
 
     let (parts, body) = req.into_parts();
 
-    // Buffer le body pour scanner (les prompts font < 1 MB)
+    // Prompts are < 1 MB — safe to buffer fully for scanning.
     let body_bytes = match body.collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(e) => {
@@ -76,7 +104,6 @@ async fn proxy(
         }
     };
 
-    // Scanner les tokens (patterns regex + valeurs exactes)
     let body_str = String::from_utf8_lossy(&body_bytes);
     let regex_hit = state.patterns.is_match(&body_str);
     let exact_hit = state.exact_tokens.iter().any(|t| body_str.contains(t.as_str()));
@@ -89,7 +116,7 @@ async fn proxy(
         );
     }
 
-    // Forward vers l'upstream (stream la reponse pour le SSE)
+    // Stream the response for SSE compatibility (no buffering).
     let path = parts
         .uri
         .path_and_query()
@@ -112,7 +139,7 @@ async fn proxy(
             }
             builder
                 .body(Body::from_stream(resp.bytes_stream()))
-                .unwrap()
+                .expect("upstream response headers are valid")
         }
         Err(e) => {
             eprintln!("[ERROR] upstream: {e}");
@@ -121,6 +148,7 @@ async fn proxy(
     }
 }
 
+/// Builds a JSON response in OpenAI API error format.
 fn error_response(status: StatusCode, msg: &str) -> Response<Body> {
     Response::builder()
         .status(status)
@@ -129,9 +157,12 @@ fn error_response(status: StatusCode, msg: &str) -> Response<Body> {
             r#"{{"error":{{"message":"{}","type":"token_guard"}}}}"#,
             msg.replace('"', "\\\"")
         )))
-        .unwrap()
+        .expect("static error response is valid")
 }
 
+/// Sends a non-blocking Telegram alert when a secret is detected.
+///
+/// Failures are logged to stderr but swallowed to avoid blocking the proxy response.
 fn alert_telegram(state: &AppState) {
     if let (Some(url), Some(chat_id)) = (&state.telegram_url, &state.telegram_chat_id) {
         let client = state.client.clone();
@@ -153,6 +184,19 @@ fn alert_telegram(state: &AppState) {
     }
 }
 
+/// Starts the token-guard DLP reverse proxy.
+///
+/// # Panics
+///
+/// Panics if `UPSTREAM_URL` is not set or if the regex patterns fail to compile.
+///
+/// # Environment
+///
+/// - `UPSTREAM_URL` (required): Base URL of the upstream LLM API.
+/// - `LISTEN_ADDR` (optional): Bind address (default `127.0.0.1:8081`).
+/// - `BLOCKED_TOKENS` (optional): Comma-separated exact strings to block.
+/// - `TELEGRAM_BOT_TOKEN` (optional): Enables Telegram alerts on block events.
+/// - `TELEGRAM_CHAT_ID` (optional): Telegram chat for alerts.
 #[tokio::main]
 async fn main() {
     let upstream = std::env::var("UPSTREAM_URL").expect("UPSTREAM_URL required");
@@ -165,7 +209,7 @@ async fn main() {
         .unwrap_or_default()
         .split(',')
         .map(|s| s.trim().to_string())
-        .filter(|s| s.len() >= 8)
+        .filter(|s| s.len() >= 8) // Skip short tokens to avoid false positives
         .collect();
     eprintln!("[token-guard] {} regex patterns + {} exact tokens", TOKEN_PATTERNS.len(), exact_tokens.len());
 
@@ -192,6 +236,7 @@ mod tests {
     use http::Request;
     use tower::util::ServiceExt;
 
+    /// Creates an [`AppState`] with the given exact tokens and an unreachable upstream.
     fn test_state(exact: Vec<&str>) -> Arc<AppState> {
         Arc::new(AppState {
             client: reqwest::Client::new(),
@@ -203,10 +248,12 @@ mod tests {
         })
     }
 
+    /// Builds a test router with the given exact tokens.
     fn app(exact: Vec<&str>) -> Router {
         Router::new().fallback(proxy).with_state(test_state(exact))
     }
 
+    /// Sends a POST to `/v1/chat/completions` and returns the HTTP status code.
     async fn post(app: &Router, body: &str) -> u16 {
         let req = Request::post("/v1/chat/completions")
             .body(Body::from(body.to_string()))

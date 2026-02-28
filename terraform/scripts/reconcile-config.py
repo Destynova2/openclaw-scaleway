@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Reconcile on-disk config files with cloud-init metadata on every boot."""
+"""Reconcile on-disk config files with cloud-init metadata on every boot.
+
+Deployed via cloud-init.yaml.tftpl (write_files) and referenced from instance.tf.
+Installed at /var/lib/cloud/scripts/per-boot/ for automatic execution.
+"""
 import hashlib, json, os, subprocess, sys, urllib.request
 
 import yaml
 
+# Scaleway instance metadata service (link-local, always available on the instance)
 METADATA_URL = "http://169.254.42.42/user_data/cloud-init"
+# Paths written by cloud-init that should be kept in sync with metadata on every boot.
 MANAGED_PREFIXES = (
     "/home/openclaw/config/openclaw.json",
     "/home/openclaw/kube.yml",
@@ -15,11 +21,16 @@ MANAGED_PREFIXES = (
 )
 
 def sha256(content):
+    """Returns the SHA-256 hex digest of the given content."""
     if isinstance(content, str):
         content = content.encode()
     return hashlib.sha256(content).hexdigest()
 
 def fetch_metadata():
+    """Fetches cloud-init user data from the Scaleway metadata service.
+
+    Returns the raw YAML string, or ``None`` if the metadata service is unreachable.
+    """
     try:
         req = urllib.request.Request(METADATA_URL)
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -29,6 +40,11 @@ def fetch_metadata():
         return None
 
 def main():
+    """Compares cloud-init metadata with on-disk files, updates stale ones, and restarts the pod.
+
+    Raises:
+        ValueError: If a write_files entry contains an invalid octal permission string.
+    """
     raw = fetch_metadata()
     if not raw:
         return
@@ -80,7 +96,7 @@ def main():
         # Restart pod to pick up changes
         print("reconcile: restarting openclaw service...")
         subprocess.run(
-            ["sudo", "-u", "openclaw",
+            ["sudo", "-u", "openclaw", "env",
              "XDG_RUNTIME_DIR=/run/user/1000",
              "systemctl", "--user", "restart", "openclaw.service"],
             capture_output=True

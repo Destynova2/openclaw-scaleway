@@ -101,7 +101,7 @@ variable "github_owner" {
 
 # --- Brave Search ---
 variable "brave_search_api_key" {
-  description = "Cle API Brave Search pour le web_search de l'agent. Gratuit : $5 credits/mois = 10k recherches."
+  description = "Cle API Brave Search pour le web_search de l'agent"
   type        = string
   sensitive   = true
   default     = ""

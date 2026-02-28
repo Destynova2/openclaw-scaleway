@@ -7,7 +7,7 @@ resource "scaleway_instance_security_group" "openclaw" {
   # Le filtrage egress par IP/port n'est pas praticable (endpoints dynamiques).
   outbound_default_policy = "accept"
 
-  # SSH — ouvert (securise par cle Ed25519 + fail2ban)
+  # SSH — ouvert (securise par cle Ed25519 + fail2ban + nftables)
   inbound_rule {
     action   = "accept"
     port     = 22

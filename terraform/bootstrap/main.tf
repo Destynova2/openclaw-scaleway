@@ -1,6 +1,13 @@
+# -----------------------------------------------------------------------
+# Bootstrap — one-time setup for S3 state bucket and encryption passphrase.
+#
 # State local uniquement — NE JAMAIS migrer vers le backend S3.
 # Ce module cree le bucket S3 et la passphrase utilises par le module principal.
 # Avec -var-file=../terraform.tfvars, configure aussi les GitHub Secrets pour le CI/CD.
+#
+# Run once: cd terraform/bootstrap && tofu init && tofu apply -var-file=../terraform.tfvars
+# See CLAUDE.md for full bootstrap sequence.
+# -----------------------------------------------------------------------
 terraform {
   required_version = ">= 1.8"
   required_providers {
@@ -120,6 +127,12 @@ variable "telegram_bot_token" {
   default     = ""
 }
 
+variable "telegram_chat_id" {
+  description = "Chat ID Telegram pour les alertes"
+  type        = string
+  default     = ""
+}
+
 variable "github_agent_token" {
   description = "Fine-grained PAT GitHub pour l'agent"
   type        = string
@@ -201,6 +214,7 @@ provider "github" {
 locals {
   manage_github = nonsensitive(var.github_token != "") && var.github_repository != "" && var.github_owner != ""
 
+  # Bootstrap pushes all possible secrets (superset); main github.tf conditionally includes Pomerium secrets.
   github_secret_names = toset([
     "SCW_ACCESS_KEY",
     "SCW_SECRET_KEY",
@@ -222,6 +236,7 @@ locals {
     "SCW_POMERIUM_REGISTRY_ENDPOINT",
     "TF_VAR_brave_search_api_key",
     "TF_VAR_telegram_bot_token",
+    "TF_VAR_telegram_chat_id",
     "TF_VAR_github_agent_token",
     "RENOVATE_TOKEN",
   ])
@@ -248,6 +263,7 @@ locals {
     SCW_POMERIUM_REGISTRY_ENDPOINT    = ""
     TF_VAR_brave_search_api_key       = var.brave_search_api_key
     TF_VAR_telegram_bot_token         = var.telegram_bot_token
+    TF_VAR_telegram_chat_id           = var.telegram_chat_id
     TF_VAR_github_agent_token         = var.github_agent_token
     RENOVATE_TOKEN                    = var.github_token
   }

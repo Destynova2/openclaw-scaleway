@@ -1,3 +1,11 @@
+# -----------------------------------------------------------------------
+# Instance — DEV1-S with cloud-init and template rendering pipeline.
+#
+# Locals pre-render sub-templates (kube.yml, openclaw.json, dns-monitor.sh,
+# reconcile-config.py) then inject them into cloud-init.yaml.tftpl via indent().
+# See reconcile.tf for automatic reboot on content changes.
+# -----------------------------------------------------------------------
+
 resource "random_password" "gateway_token" {
   length  = 32
   special = false
@@ -14,6 +22,7 @@ locals {
     chrome_headless_version = var.chrome_headless_version
     telegram_bot_token      = var.telegram_bot_token
     telegram_chat_id        = var.telegram_chat_id
+    # Comma-separated secrets for token-guard DLP proxy (blocks these exact strings in LLM prompts)
     blocked_tokens = join(",", compact([
       module.iam_openclaw.secret_key,
       random_password.gateway_token.result,

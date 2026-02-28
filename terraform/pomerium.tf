@@ -44,7 +44,7 @@ resource "scaleway_registry_namespace" "pomerium" {
   is_public = false
 }
 
-# L'image doit etre poussee au prealable :
+# Built automatically by .github/workflows/opentofu.yml (build matrix). Manual push fallback:
 #   docker pull pomerium/pomerium:v0.32.0
 #   docker tag pomerium/pomerium:v0.32.0 rg.fr-par.scw.cloud/<ns>/pomerium:v0.32.0
 #   docker push rg.fr-par.scw.cloud/<ns>/pomerium:v0.32.0

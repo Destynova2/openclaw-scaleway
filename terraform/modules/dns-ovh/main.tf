@@ -1,3 +1,7 @@
+# dns-ovh — Creates DNS records via OVH Domains.
+# Interface-compatible with dns-scaleway for registrar portability.
+# Called from: dns.tf. See also: ../dns-scaleway/
+
 terraform {
   required_providers {
     ovh = {

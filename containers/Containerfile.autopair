@@ -1,3 +1,6 @@
+# autopair — Auto-approves CLI device-pairing requests (~2 MB, scratch-based).
+# Watches pending.json via inotify. See containers/autopair/src/main.rs.
+# Build: podman build -t autopair -f Containerfile.autopair containers/
 FROM docker.io/rust:1-alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /build
