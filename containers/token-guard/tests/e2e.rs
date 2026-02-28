@@ -68,7 +68,7 @@ impl TokenGuardProcess {
             .spawn()
             .expect("failed to start token-guard");
 
-        // Attendre que le serveur soit pret
+        // Poll for readiness (max 2.5s). If server never starts, test assertions will fail.
         for _ in 0..50 {
             sleep(Duration::from_millis(50)).await;
             if reqwest::get(format!("http://127.0.0.1:{port}/healthz"))

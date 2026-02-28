@@ -159,25 +159,25 @@ variable "domain_owner_contact" {
 
 # --- Feature toggles (all enabled by default) ---
 variable "enable_pomerium" {
-  description = "Deploy Pomerium SSO gateway. Set false for direct access via IP."
+  description = "Deployer la gateway SSO Pomerium. Mettre a false pour acces direct via IP."
   type        = bool
   default     = true
 }
 
 variable "enable_killswitch" {
-  description = "Deploy budget kill switch (hourly cron, auto-poweroff)."
+  description = "Deployer le kill switch budgetaire (cron horaire, poweroff auto)."
   type        = bool
   default     = true
 }
 
 variable "enable_monitoring" {
-  description = "Deploy Cockpit external log shipping via Grafana Alloy."
+  description = "Deployer l'export des logs vers Cockpit via Grafana Alloy."
   type        = bool
   default     = true
 }
 
 variable "enable_backup" {
-  description = "Deploy S3 backup bucket with restic."
+  description = "Deployer le bucket S3 de backup avec restic."
   type        = bool
   default     = true
 }

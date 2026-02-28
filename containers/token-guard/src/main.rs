@@ -6,6 +6,12 @@
 //!
 //! Built via `containers/Containerfile.token-guard`, configured in
 //! `terraform/instance.tf` (kube.yml template).
+//!
+//! # Usage
+//!
+//! ```sh
+//! UPSTREAM_URL=http://localhost:8080 cargo run
+//! ```
 
 use axum::{body::Body, extract::State, response::Response, Router};
 use http::StatusCode;

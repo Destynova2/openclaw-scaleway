@@ -42,8 +42,8 @@ def fetch_metadata():
 def main():
     """Compares cloud-init metadata with on-disk files, updates stale ones, and restarts the pod.
 
-    Raises:
-        ValueError: If a write_files entry contains an invalid octal permission string.
+    Errors in metadata parsing are logged to stderr. Subprocess failures (chown,
+    systemctl) are logged but do not prevent other operations from completing.
     """
     raw = fetch_metadata()
     if not raw:
@@ -83,24 +83,28 @@ def main():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-        os.chmod(path, int(perms, 8))
+        os.chmod(path, int(perms, 8))  # base-8 (octal) permission string
         print(f"reconcile: updated {path}")
         changed = True
 
     # Fix ownership for all openclaw files
     if changed:
-        subprocess.run(
+        result = subprocess.run(
             ["chown", "-R", "openclaw:openclaw", "/home/openclaw"],
             capture_output=True
         )
+        if result.returncode != 0:
+            print(f"reconcile: chown failed: {result.stderr.decode()}", file=sys.stderr)
         # Restart pod to pick up changes
         print("reconcile: restarting openclaw service...")
-        subprocess.run(
+        result = subprocess.run(
             ["sudo", "-u", "openclaw", "env",
              "XDG_RUNTIME_DIR=/run/user/1000",
              "systemctl", "--user", "restart", "openclaw.service"],
             capture_output=True
         )
+        if result.returncode != 0:
+            print(f"reconcile: service restart failed: {result.stderr.decode()}", file=sys.stderr)
     if changed:
         print("reconcile: done (files updated + pod restarted)")
     else:

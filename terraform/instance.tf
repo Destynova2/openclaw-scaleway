@@ -1,8 +1,9 @@
 # -----------------------------------------------------------------------
 # Instance — DEV1-S with cloud-init and template rendering pipeline.
 #
-# Locals pre-render sub-templates (kube.yml, openclaw.json, dns-monitor.sh,
-# reconcile-config.py) then inject them into cloud-init.yaml.tftpl via indent().
+# Locals pre-render sub-templates from templates/ (kube.yml.tftpl,
+# openclaw.json.tftpl, dns-monitor.sh.tftpl) and scripts/ (reconcile-config.py)
+# then inject them into cloud-init.yaml.tftpl via indent().
 # See reconcile.tf for automatic reboot on content changes.
 # -----------------------------------------------------------------------
 

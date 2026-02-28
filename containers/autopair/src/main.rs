@@ -40,12 +40,17 @@ struct DeviceEntry {
 }
 
 impl DeviceEntry {
+    /// Returns `true` if this entry's client ID matches the CLI sidecar.
     fn is_cli(&self) -> bool {
         self.client_id.as_deref() == Some(CLIENT_ID)
     }
 }
 
 /// Returns the current time as Unix milliseconds.
+///
+/// # Panics
+///
+/// Panics if the system clock returns a timestamp that does not fit in `u64` (year ~584M).
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

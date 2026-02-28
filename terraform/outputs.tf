@@ -34,7 +34,7 @@ output "grafana_url" {
 }
 
 output "openclaw_api_key_access_key" {
-  description = "Access key de la cle API IAM OpenClaw"
+  description = "Access key de la cle API IAM OpenClaw (sensitive: credential API)"
   value       = module.iam_openclaw.access_key
   sensitive   = true
 }
@@ -46,7 +46,7 @@ output "killswitch_function_url" {
 }
 
 output "killswitch_webhook_url" {
-  description = "URL du kill switch avec token — pour test manuel uniquement"
+  description = "URL du kill switch avec token (sensitive: contient le token d'auth)"
   value       = var.enable_killswitch ? "https://${scaleway_function.killswitch[0].domain_name}?token=${random_password.killswitch_token[0].result}" : "disabled"
   sensitive   = true
 }
@@ -70,7 +70,7 @@ output "ssh_private_key" {
 }
 
 output "gateway_token" {
-  description = "Token d'authentification du gateway OpenClaw"
+  description = "Token d'authentification du gateway OpenClaw (sensitive: credential API)"
   value       = random_password.gateway_token.result
   sensitive   = true
 }
