@@ -1,3 +1,7 @@
+# openclaw — Main agent image with CLI tools (jq, rg, gh, ffmpeg, etc.).
+# Multi-stage: downloads static binaries then layers them onto the official OpenClaw image.
+# Build: podman build -t openclaw-tools -f Containerfile.openclaw containers/
+
 # ARG global — visible dans tous les FROM
 # renovate: datasource=docker depName=ghcr.io/openclaw/openclaw
 ARG OPENCLAW_VERSION=2026.2.26

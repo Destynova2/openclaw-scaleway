@@ -1,3 +1,6 @@
+# openclaw-cli — CLI sidecar for gateway communication via websocket.
+# Runs as exec target inside the pod. See CLAUDE.md "Communication" section.
+# Build: podman build -t openclaw-cli -f Containerfile.openclaw-cli containers/
 FROM docker.io/node:22-alpine
 
 # renovate: datasource=npm depName=openclaw
