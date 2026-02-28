@@ -726,6 +726,7 @@ write_files:
           "controlUi": {
             "allowedOrigins": ["https://app.${domain_name}"]
           },
+          "trustedProxies": ["127.0.0.1"],
           "auth": {
             "mode": "token",
             "token": "${gateway_token}"
@@ -888,7 +889,7 @@ write_files:
             image: ${registry_endpoint}/token-guard:latest
             env:
               - name: UPSTREAM_URL
-                value: "https://api.scaleway.ai/${scw_project_id}/v1"
+                value: "https://api.scaleway.ai/${scw_project_id}"
               - name: LISTEN_ADDR
                 value: "127.0.0.1:8081"
               - name: TELEGRAM_BOT_TOKEN
@@ -1028,9 +1029,18 @@ runcmd:
   - systemctl enable --now fail2ban
   # DNS monitoring : dnsmasq comme resolver local avec log-queries
   - |
-    # Sauvegarder les DNS upstream avant de rediriger vers dnsmasq
-    grep '^nameserver' /etc/resolv.conf | grep -v '127.0.0.1' | head -2 \
-      | sed 's/nameserver /server=/' > /etc/dnsmasq.d/upstream.conf
+    # Sauvegarder les DNS upstream avant de rediriger vers dnsmasq.
+    # On recupere les vrais serveurs DNS via resolvectl (pas le stub 127.0.0.53)
+    # car resolv.conf pointe souvent vers systemd-resolved stub.
+    resolvectl dns 2>/dev/null \
+      | grep -oP '(\d+\.){3}\d+' \
+      | grep -v '^127\.' \
+      | head -2 \
+      | sed 's/^/server=/' > /etc/dnsmasq.d/upstream.conf
+    # Fallback : si aucun upstream trouve, utiliser les DNS Scaleway
+    if [ ! -s /etc/dnsmasq.d/upstream.conf ]; then
+      printf 'server=62.210.16.6\nserver=62.210.16.7\n' > /etc/dnsmasq.d/upstream.conf
+    fi
     # Pointer le resolver local vers dnsmasq
     sed -i 's/^nameserver .*/nameserver 127.0.0.1/' /etc/resolv.conf
     systemctl enable --now dnsmasq
