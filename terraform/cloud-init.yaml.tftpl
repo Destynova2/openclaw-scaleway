@@ -876,6 +876,9 @@ write_files:
             volumeMounts:
               - name: openclaw-config
                 mountPath: /home/node/.openclaw
+                readOnly: true
+              - name: cli-identity
+                mountPath: /home/node/.openclaw/identity
               - name: tmp-cli
                 mountPath: /tmp
             resources:
@@ -994,6 +997,10 @@ write_files:
               medium: Memory
           - name: chrome-data
             emptyDir: {}
+          - name: cli-identity
+            hostPath:
+              path: /home/openclaw/cli-identity
+              type: DirectoryOrCreate
 
   # Quadlet user-level (pas system-level) pour Podman rootless
   - path: /home/openclaw/.config/containers/systemd/openclaw.kube
@@ -1024,6 +1031,7 @@ write_files:
 runcmd:
   - mkdir -p /home/openclaw/config/workspace
   - mkdir -p /home/openclaw/local/bin /home/openclaw/local/lib /home/openclaw/local/.npm-cache
+  - mkdir -p /home/openclaw/cli-identity
   - chown -R openclaw:openclaw /home/openclaw
   - loginctl enable-linger openclaw
   - systemctl enable --now fail2ban
