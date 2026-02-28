@@ -6,3 +6,7 @@ CVE-2025-68121
 # basic-ftp path traversal in upstream OpenClaw base image (ghcr.io/openclaw/openclaw)
 # Fixed in basic-ftp 5.2.0, waiting for upstream OpenClaw release to include the fix
 CVE-2026-27699
+
+# ImageMagick arbitrary code execution via crafted XBM in upstream OpenClaw base image
+# Fixed in deb12u6, waiting for upstream ghcr.io/openclaw/openclaw to update
+CVE-2026-23876
