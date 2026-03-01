@@ -243,7 +243,7 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
+        run: tofu init -backend-config="bucket=${SCW_STATE_BUCKET:-openclaw-terraform-state}"
 
       - name: OpenTofu Format Check
         run: tofu fmt -check -recursive
@@ -318,7 +318,7 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
+        run: tofu init -backend-config="bucket=${SCW_STATE_BUCKET:-openclaw-terraform-state}"
 
       - name: OpenTofu Format Check
         run: tofu fmt -check -recursive
@@ -352,7 +352,7 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
+        run: tofu init -backend-config="bucket=${SCW_STATE_BUCKET:-openclaw-terraform-state}"
 
       - name: Detect Drift
         id: drift
@@ -395,7 +395,7 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
+        run: tofu init -backend-config="bucket=${SCW_STATE_BUCKET:-openclaw-terraform-state}"
 
       - name: Remove protected and CI-critical resources from state
         run: |
