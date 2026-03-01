@@ -81,11 +81,14 @@ def main():
 
         # Write updated file
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(content)
-        os.chmod(path, int(perms, 8))  # base-8 (octal) permission string
-        print(f"reconcile: updated {path}")
-        changed = True
+        try:
+            with open(path, "w") as f:
+                f.write(content)
+            os.chmod(path, int(perms, 8))  # base-8 (octal) permission string
+            print(f"reconcile: updated {path}")
+            changed = True
+        except OSError as e:
+            print(f"reconcile: cannot write {path}: {e}", file=sys.stderr)
 
     # Fix ownership for all openclaw files
     if changed:

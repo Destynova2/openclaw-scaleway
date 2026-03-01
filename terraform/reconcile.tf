@@ -1,6 +1,7 @@
 # -----------------------------------------------------------------------
 # Instance reconciliation — reboots the instance when cloud-init changes.
 #
+# cloud_init_content is defined in instance.tf (locals block).
 # cloud-init only runs on first boot. When OpenTofu detects a change in
 # cloud-init content (templates, config files), this null_resource triggers
 # a reboot so the reconcile-config.py per-boot script picks up the new
