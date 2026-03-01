@@ -130,6 +130,12 @@ variable "telegram_chat_id" {
 }
 
 # --- State S3 ---
+variable "state_bucket_name" {
+  description = "Nom du bucket S3 pour le state OpenTofu (globalement unique sur Scaleway). Doit correspondre au bucket cree par le bootstrap."
+  type        = string
+  default     = "openclaw-terraform-state"
+}
+
 variable "state_project_id" {
   description = "ID du projet Scaleway contenant le bucket S3 de state (cree par le bootstrap). Laisser vide si identique au projet openclaw."
   type        = string

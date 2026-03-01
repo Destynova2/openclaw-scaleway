@@ -37,8 +37,9 @@ terraform {
   }
   required_version = ">= 1.8"
 
+  # Backend S3 — bucket name configured via backend.conf or -backend-config
+  # (backend blocks cannot use variables in OpenTofu/Terraform)
   backend "s3" {
-    bucket = "openclaw-terraform-state"
     key    = "openclaw/terraform.tfstate"
     region = "fr-par"
 

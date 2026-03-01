@@ -35,6 +35,7 @@ github_repository = ""  # Nom du repo
                                # Alerte email a (budget - 3) EUR
 
 # --- Optionnel ---
+# state_bucket_name       = "openclaw-terraform-state"  # Nom du bucket S3 (globalement unique, doit correspondre au bootstrap)
 # state_project_id        = ""  # Si le bucket S3 est dans un projet different
 # brave_search_api_key    = ""  # Cle API Brave Search
 # telegram_bot_token      = ""  # Token bot Telegram (@BotFather)

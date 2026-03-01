@@ -33,7 +33,11 @@ Le backend S3 necessite les credentials Scaleway en variables d'environnement.
 AWS_ACCESS_KEY_ID=<scw_access_key> AWS_SECRET_ACCESS_KEY=<scw_secret_key> tofu plan
 AWS_ACCESS_KEY_ID=<scw_access_key> AWS_SECRET_ACCESS_KEY=<scw_secret_key> tofu apply
 
-# Les credentials sont dans terraform/backend.conf (gitignore)
+# Les credentials et le bucket sont dans terraform/backend.conf (gitignore)
+# Format backend.conf :
+#   bucket     = "your-unique-bucket-name"
+#   access_key = "SCW..."
+#   secret_key = "..."
 # Format rapide (copier-coller) :
 #   source <(grep '=' terraform/backend.conf | sed 's/access_key/AWS_ACCESS_KEY_ID/;s/secret_key/AWS_SECRET_ACCESS_KEY/;s/ //g;s/^/export /')
 
@@ -83,6 +87,7 @@ Declencher le run 2 via `gh workflow run opentofu.yml` ou un push trivial.
 
 ```bash
 cd terraform
+tofu init -backend-config=backend.conf   # bucket + credentials
 source <(grep '=' backend.conf | sed 's/access_key/AWS_ACCESS_KEY_ID/;s/secret_key/AWS_SECRET_ACCESS_KEY/;s/ //g;s/^/export /')
 tofu plan    # verifier
 tofu apply   # appliquer
@@ -119,7 +124,7 @@ Le seul secret **manuel** est `RENOVATE_TOKEN` (PAT GitHub separe pour Renovate)
 
 ```bash
 # 1. Retirer les ressources prevent_destroy du state
-tofu state rm 'scaleway_domain_registration.grob_ninja[0]'
+tofu state rm 'scaleway_domain_registration.this[0]'
 tofu state rm 'scaleway_account_project.openclaw'
 tofu state rm 'tls_private_key.admin'
 tofu state rm 'scaleway_vpc_private_network.openclaw'

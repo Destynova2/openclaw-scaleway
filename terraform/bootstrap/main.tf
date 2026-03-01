@@ -167,6 +167,43 @@ variable "pomerium_version" {
   default     = "v0.32.0"
 }
 
+variable "killswitch_budget_eur" {
+  description = "Ignoree par bootstrap"
+  type        = number
+  default     = 15
+}
+
+variable "enable_pomerium" {
+  description = "Ignoree par bootstrap"
+  type        = bool
+  default     = true
+}
+
+variable "enable_killswitch" {
+  description = "Ignoree par bootstrap"
+  type        = bool
+  default     = true
+}
+
+variable "enable_monitoring" {
+  description = "Ignoree par bootstrap"
+  type        = bool
+  default     = true
+}
+
+variable "enable_backup" {
+  description = "Ignoree par bootstrap"
+  type        = bool
+  default     = true
+}
+
+# --- State bucket ---
+variable "state_bucket_name" {
+  description = "Nom du bucket S3 pour le state OpenTofu (globalement unique sur Scaleway)"
+  type        = string
+  default     = "openclaw-terraform-state"
+}
+
 # --- Provider ---
 
 provider "scaleway" {
@@ -179,7 +216,7 @@ provider "scaleway" {
 # --- Bucket S3 ---
 
 resource "scaleway_object_bucket" "terraform_state" {
-  name   = "openclaw-terraform-state"
+  name   = var.state_bucket_name
   region = "fr-par"
 
   versioning {
@@ -239,6 +276,7 @@ locals {
     "TF_VAR_telegram_chat_id",
     "TF_VAR_github_agent_token",
     "RENOVATE_TOKEN",
+    "SCW_STATE_BUCKET",
   ])
 
   # Cle admin temporaire — remplacee par cle CI IAM au premier tofu apply
@@ -266,6 +304,7 @@ locals {
     TF_VAR_telegram_chat_id           = var.telegram_chat_id
     TF_VAR_github_agent_token         = var.github_agent_token
     RENOVATE_TOKEN                    = var.github_token
+    SCW_STATE_BUCKET                  = var.state_bucket_name
   }
 }
 

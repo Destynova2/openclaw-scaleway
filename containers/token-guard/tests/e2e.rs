@@ -212,7 +212,7 @@ async fn e2e_allows_email() {
     let client = reqwest::Client::new();
     let resp = client
         .post(guard.url("/v1/chat/completions"))
-        .body(r#"{"messages":[{"role":"user","content":"contacte admin@secret-corp.com"}]}"#)
+        .body(r#"{"messages":[{"role":"user","content":"contacte admin@example.com"}]}"#)
         .send()
         .await
         .unwrap();

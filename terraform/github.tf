@@ -28,6 +28,7 @@ locals {
     "TF_VAR_telegram_chat_id",
     "TF_VAR_github_agent_token",
     "RENOVATE_TOKEN",
+    "SCW_STATE_BUCKET",
   ])
 
   # Secrets Pomerium (conditionnels)
@@ -61,6 +62,7 @@ locals {
       TF_VAR_telegram_chat_id      = var.telegram_chat_id
       TF_VAR_github_agent_token    = var.github_agent_token
       RENOVATE_TOKEN               = var.github_token
+      SCW_STATE_BUCKET             = var.state_bucket_name
     },
     var.enable_pomerium ? {
       TF_VAR_pomerium_idp_client_id     = var.pomerium_idp_client_id

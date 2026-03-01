@@ -55,6 +55,8 @@ env:
   TF_VAR_github_token: ${{ secrets.TF_VAR_github_token }}
   TF_VAR_github_owner: ${{ github.repository_owner }}
   TF_VAR_github_repository: ${{ github.event.repository.name }}
+  TF_VAR_state_bucket_name: ${{ secrets.SCW_STATE_BUCKET }}
+  SCW_STATE_BUCKET: ${{ secrets.SCW_STATE_BUCKET }}
 
 jobs:
   # ── Path detection (push + dispatch) ────────────────────────────────
@@ -241,7 +243,7 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init
+        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
 
       - name: OpenTofu Format Check
         run: tofu fmt -check -recursive
@@ -316,7 +318,7 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init
+        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
 
       - name: OpenTofu Format Check
         run: tofu fmt -check -recursive
@@ -350,7 +352,7 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init
+        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
 
       - name: Detect Drift
         id: drift
@@ -393,12 +395,12 @@ jobs:
           tofu_version: "1.8"
 
       - name: OpenTofu Init
-        run: tofu init
+        run: tofu init -backend-config="bucket=$SCW_STATE_BUCKET"
 
       - name: Remove protected and CI-critical resources from state
         run: |
           # prevent_destroy resources (survivent au destroy, reimportees ou recrees au prochain apply)
-          tofu state rm 'scaleway_domain_registration.grob_ninja[0]' || true
+          tofu state rm 'scaleway_domain_registration.this[0]' || true
           tofu state rm 'scaleway_account_project.openclaw' || true
           tofu state rm 'tls_private_key.admin' || true
           tofu state rm 'scaleway_vpc_private_network.openclaw' || true

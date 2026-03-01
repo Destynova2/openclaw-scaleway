@@ -2,7 +2,7 @@
 # Conditionnel : ne s'active que si domain_owner_contact est renseigne dans tfvars
 # Prix : 27.53 EUR/an (renouvellement auto desactive par defaut)
 
-resource "scaleway_domain_registration" "grob_ninja" {
+resource "scaleway_domain_registration" "this" {
   count = var.domain_owner_contact != null ? 1 : 0
 
   domain_names      = [var.domain_name]
