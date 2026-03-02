@@ -1,7 +1,0 @@
-# Token-guard unit tests — fake secrets used to test DLP pattern detection
-ce58a58b9ae92dc0dc6b23a6da7206d7c19e5941:containers/token-guard/src/main.rs:slack-bot-token:262
-ce58a58b9ae92dc0dc6b23a6da7206d7c19e5941:containers/token-guard/src/main.rs:gitlab-pat:267
-ce58a58b9ae92dc0dc6b23a6da7206d7c19e5941:containers/token-guard/src/main.rs:telegram-bot-api-token:257
-ce58a58b9ae92dc0dc6b23a6da7206d7c19e5941:containers/token-guard/src/main.rs:github-pat:237
-ce58a58b9ae92dc0dc6b23a6da7206d7c19e5941:containers/token-guard/src/main.rs:aws-access-token:222
-ce58a58b9ae92dc0dc6b23a6da7206d7c19e5941:containers/token-guard/src/main.rs:private-key:272

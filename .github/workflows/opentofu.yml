@@ -85,7 +85,7 @@ jobs:
       pomerium: ${{ steps.changes.outputs.pomerium }}
       openclaw: ${{ steps.changes.outputs.openclaw }}
       openclaw_cli: ${{ steps.changes.outputs.openclaw_cli }}
-      token_guard: ${{ steps.changes.outputs.token_guard }}
+      grob: ${{ steps.changes.outputs.grob }}
       autopair: ${{ steps.changes.outputs.autopair }}
       terraform: ${{ steps.changes.outputs.terraform }}
     steps:
@@ -99,7 +99,7 @@ jobs:
           # workflow_dispatch ou premier push : tout rebuilder
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || \
              [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            for key in caddy pomerium openclaw openclaw_cli token_guard autopair terraform; do
+            for key in caddy pomerium openclaw openclaw_cli grob autopair terraform; do
               echo "$key=true" >> "$GITHUB_OUTPUT"
             done
             exit 0
@@ -109,7 +109,7 @@ jobs:
           echo "pomerium=$(echo "$CHANGED" | grep -q '^containers/Containerfile\.pomerium$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "openclaw=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.openclaw|\.trivyignore)$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "openclaw_cli=$(echo "$CHANGED" | grep -q '^containers/Containerfile\.openclaw-cli$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "token_guard=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.token-guard|token-guard/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "grob=$(echo "$CHANGED" | grep -q '^containers/Containerfile\.grob$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "autopair=$(echo "$CHANGED" | grep -qE '^containers/(Containerfile\.autopair|autopair/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "terraform=$(echo "$CHANGED" | grep -q '^terraform/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
@@ -159,10 +159,10 @@ jobs:
             tag: latest
             trivyignore: ''
             timeout: 15
-          - name: Token Guard
-            key: token_guard
-            image: token-guard
-            file: Containerfile.token-guard
+          - name: Grob
+            key: grob
+            image: grob
+            file: Containerfile.grob
             registry: main
             tag: latest
             trivyignore: ''

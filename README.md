@@ -19,7 +19,7 @@ graph TB
         end
 
         BillingAPI[(Billing API)]
-        GenAI[(Generative APIs<br/>13 models via Token Guard)]
+        GenAI[(Generative APIs<br/>13 models via Grob)]
         TEM[Transactional Email]
         Cockpit[(Cockpit Logs<br/>Grafana + Loki)]
         DNS[DNS<br/>Scaleway Domains]
@@ -33,7 +33,7 @@ graph TB
                     Tools["CLI tools: gh, jq, rg, ffmpeg,<br/>himalaya, blogwatcher, camsnap,<br/>gog, gifgrep, openhue, sonos,<br/>notesmd-cli, pi"]
                 end
                 Chrome["Chrome Headless<br/>CDP :9222<br/>512 Mi"]
-                TokenGuard["Token Guard (Rust)<br/>DLP proxy :8081<br/>blocks secrets in LLM calls<br/>32 Mi"]
+                Grob["Grob (Rust)<br/>LLM proxy + DLP :8081<br/>routing, budget, secret scanning<br/>64 Mi"]
                 Caddy["Caddy<br/>reverse proxy + rate limit<br/>30 req/min<br/>128 Mi"]
                 CLI["CLI Sidecar<br/>gateway call<br/>128 Mi"]
             end
@@ -49,8 +49,8 @@ graph TB
     Pomerium -->|Private Network| Caddy
     Caddy -->|:18789| OC
     OC -->|:9222 CDP| Chrome
-    OC -->|:8081| TokenGuard
-    TokenGuard -->|filtered prompts| GenAI
+    OC -->|:8081| Grob
+    Grob -->|filtered prompts| GenAI
     CLI -->|ws://127.0.0.1:18789| OC
     OC -->|plugin| Telegram
 
@@ -89,12 +89,12 @@ After initial setup, **routine changes** only need: edit files → `git push` �
 
 ## What you get
 
-- **5 containers** in a Podman rootless pod (OpenClaw, Caddy, Chrome, CLI sidecar, Token Guard)
+- **6 containers** in a Podman rootless pod (OpenClaw, Caddy, Chrome, CLI sidecar, Grob, Autopair)
 - **SSO** via Pomerium + GitHub OAuth
 - **13 LLM models** via Scaleway Generative APIs (gpt-oss-120b default, pay-per-use)
 - **RAG** via bge-multilingual-gemma2 embedding model
 - **Audio transcription** via whisper-large-v3 (up to 20 MB)
-- **DLP proxy** (Token Guard) — 58 regex patterns block secrets, API keys, credit cards, IBAN, crypto wallets in LLM calls
+- **DLP proxy** (Grob) — 28 built-in secret patterns + PII (credit cards, IBAN) + prompt injection detection + budget management
 - **Kill switch** : serverless function checks billing every hour, poweroff at configurable threshold
 - **CI/CD** : unified Deploy workflow (builds + apply with `needs`), Trivy scan, Renovate for deps
 - **Security** : Lynis 88/100, nftables, fail2ban, AIDE, auditd, rkhunter, debsums, encrypted state
@@ -139,7 +139,7 @@ Telegram and Brave Search are soft-toggled: leave vars empty to disable.
 | **Spoofing** | Pomerium SSO (GitHub OAuth), gateway token auth, SSH Ed25519, 3 least-privilege IAM service accounts | Gateway token in encrypted state only |
 | **Tampering** | Encrypted state (AES-GCM), Trivy scan in CI, seccomp RuntimeDefault, readOnlyRootFilesystem, drop ALL caps, SHA-pinned GitHub Actions | cloud-init is first boot only — no runtime integrity check |
 | **Repudiation** | Cockpit logs (Alloy → Loki), auditd + AIDE, GitHub Actions audit trail | No audit log on gateway WebSocket API calls |
-| **Information Disclosure** | Token Guard DLP proxy (blocks API keys in LLM calls), `sensitive = true` on all secrets, state encryption, private container registries | LLM prompts transit via Scaleway GenAI (trust boundary) |
+| **Information Disclosure** | Grob DLP proxy (blocks secrets, PII in LLM calls), `sensitive = true` on all secrets, state encryption, private container registries | LLM prompts transit via Scaleway GenAI (trust boundary) |
 | **Denial of Service** | Caddy rate_limit 30 req/min, nftables DROP default policy, fail2ban (aggressive SSH), `admin_ip_cidr` SSH restriction | Kill switch endpoint is public (token-protected) |
 | **Elevation of Privilege** | Podman rootless (uid 1000), drop ALL caps, no shell for `openclaw` user, 3 separate IAM accounts, security group per-port rules | Root SSH (restricted to `admin_ip_cidr`) |
 
@@ -154,16 +154,16 @@ Agent → SSH (Ed25519) → root@instance → podman exec → CLI sidecar → ga
 - **Auth**: SSH key + gateway token (both auto-generated, stored in encrypted state)
 - **Scope**: `chat.send` and `chat.history` only (WebSocket gateway API)
 - **Isolation**: CLI sidecar runs in 128 Mi container, shares config volume (not rootfs)
-- **DLP**: Token Guard intercepts all LLM calls — blocks secrets even from agent-initiated prompts
+- **DLP**: Grob intercepts all LLM calls — blocks secrets even from agent-initiated prompts
 - **Risk**: if gateway call fails, CLI falls back to embedded agent (OOM at 128 Mi — by design)
 
 ### OpenClaw capabilities in this deployment
 
 | Capability | Component | Sandbox |
 |-----------|-----------|---------|
-| LLM (13 models) | Scaleway GenAI via Token Guard | 58-pattern DLP proxy (API keys, PEM, credit cards, IBAN, crypto wallets) |
-| RAG / memory search | bge-multilingual-gemma2 embedding | Via Token Guard |
-| Audio transcription | whisper-large-v3 (max 20 MB) | Via Scaleway GenAI |
+| LLM (13 models) | Scaleway GenAI via Grob | DLP proxy (28 secret patterns, PII, prompt injection, budget) |
+| RAG / memory search | bge-multilingual-gemma2 embedding | Direct Scaleway API (bypasses Grob) |
+| Audio transcription | whisper-large-v3 (max 20 MB) | Direct Scaleway API (bypasses Grob) |
 | Web browsing | Chrome headless (CDP :9222) | Separate container, 512 Mi, no host access |
 | Email | himalaya CLI | In OpenClaw container |
 | GitHub | gh CLI (`GH_TOKEN`) | In OpenClaw container |
