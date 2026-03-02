@@ -76,14 +76,12 @@ spec:
         capabilities:
           drop: ["ALL"]
       livenessProbe:
-        httpGet:
-          path: /json/version
+        tcpSocket:
           port: 9222
         initialDelaySeconds: 5
         periodSeconds: 30
       readinessProbe:
-        httpGet:
-          path: /json/version
+        tcpSocket:
           port: 9222
         initialDelaySeconds: 3
         periodSeconds: 10
@@ -136,21 +134,14 @@ spec:
           memory: "16Mi"
           cpu: "0.1"
 
-    # DLP proxy — scanne les prompts LLM pour bloquer les fuites de tokens.
-    # Binaire Rust statique (~5MB), FROM scratch, ~3MB RAM.
-    - name: token-guard
-      image: ${registry_endpoint}/token-guard:latest
+    # Grob — LLM routing proxy with built-in DLP (secret scanning, PII, budget).
+    # Binaire Rust statique (~15MB), FROM scratch, ~10MB RAM.
+    - name: grob
+      image: ${registry_endpoint}/grob:latest
+      args: ["run", "--json-logs", "--config", "/config/config.toml"]
       env:
-        - name: UPSTREAM_URL
-          value: "https://api.scaleway.ai/${scw_project_id}"
-        - name: LISTEN_ADDR
-          value: "127.0.0.1:8081"
-        - name: TELEGRAM_BOT_TOKEN
-          value: "${telegram_bot_token}"
-        - name: TELEGRAM_CHAT_ID
-          value: "${telegram_chat_id}"
-        - name: BLOCKED_TOKENS
-          value: "${blocked_tokens}"
+        - name: GROB_CONFIG
+          value: "/config/config.toml"
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true
@@ -158,13 +149,17 @@ spec:
           drop: ["ALL"]
       livenessProbe:
         httpGet:
-          path: /healthz
+          path: /health
           port: 8081
         initialDelaySeconds: 3
         periodSeconds: 30
+      volumeMounts:
+        - name: grob-config
+          mountPath: /config
+          readOnly: true
       resources:
         limits:
-          memory: "32Mi"
+          memory: "64Mi"
           cpu: "0.25"
 
     # Tag :latest intentionnel — image custom construite dans notre registre prive
@@ -251,3 +246,7 @@ spec:
       hostPath:
         path: /home/openclaw/cli-identity
         type: DirectoryOrCreate
+    - name: grob-config
+      hostPath:
+        path: /home/openclaw/grob
+        type: Directory

@@ -1,0 +1,42 @@
+[server]
+host = "127.0.0.1"
+port = 8081
+log_level = "warn"
+
+[budget]
+monthly_limit_usd = 5.0
+warn_at_percent = 80
+
+[dlp]
+enabled = true
+scan_input = true
+scan_output = true
+
+[dlp.pii]
+credit_cards = true
+iban = true
+
+# Custom rules to block deployment-specific tokens (replaces BLOCKED_TOKENS)
+[[dlp.custom_prefixes]]
+name = "scaleway-api-key"
+prefix = "SCW"
+length = 36
+action = "redact"
+
+[[providers]]
+name = "scaleway"
+provider_type = "openai"
+api_key = "${scw_api_key}"
+base_url = "https://api.scaleway.ai/${scw_project_id}/v1"
+enabled = true
+
+[router]
+default = "default"
+auto_map_regex = ".*"
+
+[[models]]
+name = "default"
+[[models.mappings]]
+provider = "scaleway"
+actual_model = "qwen3-coder-30b-a3b-instruct"
+priority = 1

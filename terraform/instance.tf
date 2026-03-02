@@ -21,20 +21,16 @@ locals {
     scw_project_id          = local.project_id
     github_agent_token      = var.github_agent_token
     chrome_headless_version = var.chrome_headless_version
-    telegram_bot_token      = var.telegram_bot_token
-    telegram_chat_id        = var.telegram_chat_id
-    # Comma-separated secrets for token-guard DLP proxy (blocks these exact strings in LLM prompts)
-    blocked_tokens = join(",", compact([
-      module.iam_openclaw.secret_key,
-      random_password.gateway_token.result,
-      var.brave_search_api_key,
-      var.enable_pomerium ? var.pomerium_idp_client_secret : "",
-      var.enable_monitoring ? scaleway_cockpit_token.alloy[0].secret_key : "",
-    ]))
+  })
+
+  grob_toml = templatefile("${path.module}/templates/grob.toml.tftpl", {
+    scw_api_key    = module.iam_openclaw.secret_key
+    scw_project_id = local.project_id
   })
 
   openclaw_json = templatefile("${path.module}/templates/openclaw.json.tftpl", {
     scw_api_key          = module.iam_openclaw.secret_key
+    scw_project_id       = local.project_id
     brave_search_api_key = var.brave_search_api_key
     domain_name          = var.domain_name
     gateway_token        = random_password.gateway_token.result
@@ -60,6 +56,7 @@ locals {
     backup_secret_key     = var.enable_backup ? module.iam_backup[0].secret_key : ""
     cockpit_logs_push_url = var.enable_monitoring ? scaleway_cockpit_source.logs[0].push_url : ""
     cockpit_token         = var.enable_monitoring ? scaleway_cockpit_token.alloy[0].secret_key : ""
+    grob_toml             = local.grob_toml
     kube_yml              = local.kube_yml
     openclaw_json         = local.openclaw_json
     dns_monitor_sh        = local.dns_monitor_sh

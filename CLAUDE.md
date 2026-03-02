@@ -10,9 +10,8 @@
                           build-*.yml / push-pomerium.yml (workflow_dispatch only),
                           renovate.yml, trivy-compliance.yml
 containers/               Containerfile.caddy, Containerfile.pomerium, Containerfile.openclaw,
-                          Containerfile.openclaw-cli, Containerfile.token-guard
+                          Containerfile.openclaw-cli, Containerfile.grob
                           .trivyignore (CVEs upstream non-fixables)
-  token-guard/            Proxy DLP Rust (filtre secrets dans les appels LLM)
 docs/PRD.md               Product Requirements Document
 renovate.json             Dependency management config
 terraform/                Infrastructure OpenTofu (Scaleway)
@@ -147,7 +146,7 @@ tofu apply
 ## Architecture
 
 - **Instance DEV1-S** : Podman rootless (user `openclaw`, uid 1000)
-  - Pod `openclaw` : 5 containers (OpenClaw + Caddy + Chrome headless + CLI sidecar + infra)
+  - Pod `openclaw` : 6 containers (OpenClaw + Caddy + Chrome headless + CLI sidecar + Grob DLP proxy + Autopair)
   - Quadlet systemd (`/etc/containers/systemd/openclaw.kube`)
   - Seccomp RuntimeDefault, readOnlyRootFilesystem, drop ALL caps
 - **Gateway auth** : mode `token` (`random_password.gateway_token`)

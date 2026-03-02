@@ -530,30 +530,32 @@ write_files:
 
       # Modeles disponibles
 
-      Tu tournes par defaut sur Mistral Small (rapide, pas cher). Quand une tache depasse ses capacites, recommande de switcher avec la commande appropriee. Ne switche pas pour rien — le budget API est limite.
+      Tu tournes par defaut sur Qwen3 Coder (bon ratio qualite/prix, tools fiables). Quand une tache depasse ses capacites, recommande de switcher avec la commande appropriee. Ne switche pas pour rien — le budget API est limite.
 
-      | Commande | Modele | Quand recommander |
-      |----------|--------|-------------------|
-      | `/mistral` | Mistral Small 3.2 24B | **Defaut.** Chat, questions simples, taches courantes. Rapide et pas cher. |
-      | `/devstral` | Devstral 2 123B | **Code complexe.** Refactoring, debug difficile, generation de code multi-fichiers, revue de PR. |
-      | `/qwen-235b` | Qwen3 235B | **Raisonnement long.** Analyse approfondie, planification, synthese de documents complexes. |
-      | `/deepseek` | DeepSeek R1 70B | **Maths et logique.** Calculs, raisonnement formel, puzzles, preuves. |
-      | `/gpt` | GPT-OSS 120B | **Generaliste costaud.** Bon compromis qualite/prix quand Mistral manque de profondeur. |
-      | `/llama-70b` | Llama 3.3 70B | **Alternative generaliste.** Redaction longue, creative writing, brainstorming. |
-      | `/code` | Qwen3 Coder 30B | **Code economique.** Scripts simples, corrections rapides, snippets. |
-      | `/holo` | Holo2 30B | **Generaliste moyen.** Conversations, Q&A, quand Mistral suffit pas mais qu'on veut pas monter trop haut. |
-      | `/gemma` | Gemma 3 27B | **Vision + texte.** Analyse d'images, screenshots, OCR, diagrammes. |
-      | `/pixtral` | Pixtral 12B | **Vision pas chere.** Description d'images simples, lecture de captures d'ecran. |
-      | `/nemo` | Mistral Nemo 12B | **Ultra-rapide.** Taches triviales, reformulation, traduction courte. |
-      | `/voxtral` | Voxtral Small 24B | **Audio.** Transcription et analyse de fichiers audio. |
-      | `/llama` | Llama 3.1 8B | **Sous-taches.** Reserve aux sous-agents, le moins cher. |
+      **IMPORTANT** : les modeles marques "Tools" supportent le function calling (browser, recherche, etc.). Les autres ne peuvent PAS utiliser les outils.
+
+      | Commande | Modele | Tools | Quand recommander |
+      |----------|--------|:---:|-------------------|
+      | `/code` | Qwen3 Coder 30B | Oui | **Defaut.** Chat, code, taches courantes. Tools fiables, bon prix. |
+      | `/pixtral` | Pixtral 12B | Oui | **Photos.** Fallback #1. Vision + tools, le moins cher. |
+      | `/llama` | Llama 3.1 8B | Oui | **Sous-taches.** Fallback #2, ultra cheap. |
+      | `/devstral` | Devstral 2 123B | Oui | **Code complexe.** Refactoring, debug difficile, revue de PR. |
+      | `/qwen-235b` | Qwen3 235B | Oui | **Raisonnement long.** Analyse approfondie, planification. |
+      | `/llama-70b` | Llama 3.3 70B | Oui | **Generaliste costaud.** Redaction longue, brainstorming. |
+      | `/gemma` | Gemma 3 27B | Oui | **Vision haute qualite.** Screenshots complexes, OCR, diagrammes. |
+      | `/deepseek` | DeepSeek R1 70B | Non | **Maths et logique.** Calculs, raisonnement formel, preuves. |
+      | `/mistral` | Mistral Small 3.2 24B | Non | **Chat simple.** Rapide mais PAS de tools (bug function names). |
+      | `/gpt` | GPT-OSS 120B | Non | **Generaliste.** Bonne qualite mais PAS de tools. |
+      | `/holo` | Holo2 30B | Non | **Conversations.** Leger, sans tools. |
+      | `/nemo` | Mistral Nemo 12B | Non | **Ultra-rapide.** Reformulation, traduction courte. Sans tools. |
+      | `/voxtral` | Voxtral Small 24B | Non | **Audio.** Transcription et analyse de fichiers audio. |
 
       Exemples de recommandation :
-      - "Ce refactoring est complexe, je te recommande `/devstral` pour ca."
-      - "C'est un calcul mathematique, `/deepseek` serait plus fiable."
-      - "Pour analyser cette image, passe en `/gemma`."
+      - "Il y a une photo, je passe en `/pixtral` pour l'analyser."
+      - "Ce refactoring est complexe, je te recommande `/devstral`."
+      - "C'est un calcul mathematique, `/deepseek` serait plus fiable (mais sans outils)."
 
-      Ne recommande un switch que si c'est vraiment necessaire. Pour 80% des taches, Mistral Small suffit.
+      Ne recommande un switch que si c'est vraiment necessaire. Pour 80% des taches, Qwen3 Coder suffit.
 
   # Fichier DOIT s'appeler openclaw.json (pas config.json5)
   # cf. /app/src/config/paths.ts → CONFIG_FILENAME = "openclaw.json"
@@ -561,6 +563,12 @@ write_files:
     permissions: "0600"
     content: |
       ${indent(6, openclaw_json)}
+
+  - path: /home/openclaw/grob/config.toml
+    owner: openclaw:openclaw
+    permissions: "0600"
+    content: |
+      ${indent(6, grob_toml)}
 
   - path: /home/openclaw/kube.yml
     content: |
@@ -601,6 +609,7 @@ write_files:
 runcmd:
   - mkdir -p /home/openclaw/config/workspace
   - mkdir -p /home/openclaw/local/bin /home/openclaw/local/lib /home/openclaw/local/.npm-cache
+  - mkdir -p /home/openclaw/grob
   - mkdir -p /home/openclaw/cli-identity
   - chown -R openclaw:openclaw /home/openclaw
   - loginctl enable-linger openclaw

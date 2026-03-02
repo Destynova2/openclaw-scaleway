@@ -96,6 +96,15 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG \\w+=(?<currentValue>\\S+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Grob version in Containerfile",
+      "fileMatch": ["containers/Containerfile\\.grob$"],
+      "matchStrings": ["ARG GROB_VERSION=v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "depNameTemplate": "azerozero/grob",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
     }
   ]
 }

@@ -26,8 +26,8 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "scaleway/mistral-small-3.2-24b-instruct-2506",
-        "fallbacks": ["scaleway/gpt-oss-120b", "scaleway/llama-3.1-8b-instruct"]
+        "primary": "scaleway/qwen3-coder-30b-a3b-instruct",
+        "fallbacks": ["scaleway/pixtral-12b-2409", "scaleway/llama-3.1-8b-instruct"]
       },
       "models": {
         "scaleway/mistral-small-3.2-24b-instruct-2506": {"alias": "mistral"},
@@ -53,7 +53,7 @@
         "provider": "openai",
         "model": "bge-multilingual-gemma2",
         "remote": {
-          "baseUrl": "http://127.0.0.1:8081/v1",
+          "baseUrl": "https://api.scaleway.ai/${scw_project_id}/v1",
           "headers": {
             "Authorization": "Bearer ${scw_api_key}"
           }

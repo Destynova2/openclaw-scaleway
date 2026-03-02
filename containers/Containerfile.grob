@@ -1,0 +1,15 @@
+# grob — LLM routing proxy with built-in DLP (~15 MB, scratch-based).
+# Multi-model routing, budget management, secret scanning, PII detection.
+# Build: podman build -t grob -f Containerfile.grob containers/
+FROM docker.io/rust:1-alpine AS builder
+RUN apk add --no-cache musl-dev git
+ARG GROB_VERSION=v0.9.0
+RUN git clone --depth 1 --branch ${GROB_VERSION} https://github.com/azerozero/grob.git /build
+WORKDIR /build
+RUN cargo build --release
+
+FROM scratch
+COPY --from=builder /build/target/release/grob /grob
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+USER 1000
+ENTRYPOINT ["/grob"]
