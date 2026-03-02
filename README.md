@@ -68,7 +68,7 @@ graph TB
 ```bash
 # 1. Fork + clone
 # Fork this repo on GitHub, then:
-git clone git@github.com:<you>/fmj.git && cd fmj
+git clone git@github.com:<you>/openclaw-scaleway.git && cd openclaw-scaleway
 
 # 2. Configure
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars

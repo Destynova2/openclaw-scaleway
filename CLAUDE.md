@@ -1,5 +1,7 @@
 # OpenClaw — Scaleway Deployment
 
+> **Note:** This file is written in French — it serves as the project's Claude Code instruction file. See [README.md](README.md) for the English getting-started guide.
+
 ## Project Structure
 
 ```

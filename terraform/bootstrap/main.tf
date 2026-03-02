@@ -102,7 +102,7 @@ variable "github_owner" {
 }
 
 variable "github_repository" {
-  description = "Nom du repository GitHub (ex: _fmj)"
+  description = "Nom du repository GitHub (ex: openclaw-scaleway)"
   type        = string
   default     = ""
 }

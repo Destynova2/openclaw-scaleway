@@ -65,7 +65,7 @@ resource "scaleway_container" "pomerium" {
     ADDRESS                  = ":8080"
     AUTOCERT                 = "false"
     IDP_PROVIDER             = "github"
-    LOG_LEVEL                = "debug"
+    LOG_LEVEL                = "warn"
     INSECURE_SERVER          = "true"
     AUTHENTICATE_SERVICE_URL = "https://auth.${var.domain_name}"
     POLICY                   = local.pomerium_routes
