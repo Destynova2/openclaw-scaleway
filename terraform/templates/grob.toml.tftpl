@@ -29,14 +29,8 @@ provider_type = "openai"
 api_key = "${scw_api_key}"
 base_url = "https://api.scaleway.ai/${scw_project_id}/v1"
 enabled = true
+models = []
+pass_through = true
 
 [router]
 default = "default"
-auto_map_regex = ".*"
-
-[[models]]
-name = "default"
-[[models.mappings]]
-provider = "scaleway"
-actual_model = "qwen3-coder-30b-a3b-instruct"
-priority = 1
