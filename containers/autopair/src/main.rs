@@ -14,7 +14,8 @@ use std::{thread, time::Duration};
 const DEVICES_DIR: &str = "/config/devices";
 const PENDING_FILE: &str = "/config/devices/pending.json";
 const PAIRED_FILE: &str = "/config/devices/paired.json";
-const CLIENT_ID: &str = "cli";
+/// Client IDs to auto-approve (CLI sidecar + internal gateway connections like browser tool).
+const APPROVED_CLIENTS: &[&str] = &["cli", "gateway-client"];
 /// Buffer for inotify events — 1024 bytes covers several events per read cycle.
 const INOTIFY_BUF_SIZE: usize = 1024;
 const DIR_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -40,9 +41,11 @@ struct DeviceEntry {
 }
 
 impl DeviceEntry {
-    /// Returns `true` if this entry's client ID matches the CLI sidecar.
-    fn is_cli(&self) -> bool {
-        self.client_id.as_deref() == Some(CLIENT_ID)
+    /// Returns `true` if this entry's client ID is in the auto-approve list.
+    fn is_auto_approved(&self) -> bool {
+        self.client_id
+            .as_deref()
+            .is_some_and(|id| APPROVED_CLIENTS.contains(&id))
     }
 }
 
@@ -89,42 +92,35 @@ fn write_atomic(path: impl AsRef<Path>, content: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Returns `true` if the device map contains an entry with `CLIENT_ID`.
-fn has_cli_entry(devices: &Devices) -> bool {
-    devices.values().any(DeviceEntry::is_cli)
-}
-
-/// Moves the CLI entry from `pending` to `paired`, setting `approved_at_ms` to now.
+/// Moves all auto-approved entries from `pending` to `paired`, setting `approved_at_ms` to now.
 ///
-/// Returns `None` if no CLI entry exists in `pending`.
-fn approve_cli(pending: &mut Devices, paired: &mut Devices) -> Option<String> {
-    let key = pending
+/// Returns the list of approved device IDs.
+fn approve_pending(pending: &mut Devices, paired: &mut Devices) -> Vec<String> {
+    let keys: Vec<String> = pending
         .iter()
-        .find(|(_, entry)| entry.is_cli())
-        .map(|(k, _)| k.clone())?;
+        .filter(|(_, entry)| entry.is_auto_approved())
+        .map(|(k, _)| k.clone())
+        .collect();
 
-    let mut entry = pending.remove(&key).expect("key was found via find()");
-    entry.approved_at_ms = Some(now_ms());
-    paired.insert(key.clone(), entry);
-    Some(key)
+    for key in &keys {
+        let mut entry = pending.remove(key).expect("key was found via filter()");
+        entry.approved_at_ms = Some(now_ms());
+        paired.insert(key.clone(), entry);
+    }
+    keys
 }
 
-/// Reads pending/paired files, approves the CLI if present and not already paired, and writes back.
+/// Reads pending/paired files, approves matching entries and writes back.
 fn try_approve(pending_path: &Path, paired_path: &Path) {
-    // Already paired — nothing to do
-    if load_json::<Devices>(paired_path).is_some_and(|p| has_cli_entry(&p)) {
-        return;
-    }
-
     let Some(mut pending) = load_json::<Devices>(pending_path) else {
         return;
     };
     let mut paired: Devices = load_json(paired_path).unwrap_or_default();
 
-    let Some(key) = approve_cli(&mut pending, &mut paired) else {
-        eprintln!("autopair: no pending CLI entry found");
+    let approved = approve_pending(&mut pending, &mut paired);
+    if approved.is_empty() {
         return;
-    };
+    }
 
     let paired_json =
         serde_json::to_string_pretty(&paired).expect("Devices serialization is infallible");
@@ -141,8 +137,10 @@ fn try_approve(pending_path: &Path, paired_path: &Path) {
         eprintln!("autopair: failed to write pending.json: {e}");
         return;
     }
+    for key in &approved {
+        eprintln!("autopair: device paired (deviceId={key})");
+    }
 
-    eprintln!("autopair: CLI paired (deviceId={key})");
 }
 
 /// Returns `true` if the inotify event targets `pending.json`.
@@ -211,6 +209,10 @@ mod tests {
 
     const FAKE_TIMESTAMP: u64 = 1000;
 
+    fn has_approved_entry(devices: &Devices) -> bool {
+        devices.values().any(DeviceEntry::is_auto_approved)
+    }
+
     fn make_entry(client_id: &str, approved: bool) -> DeviceEntry {
         DeviceEntry {
             client_id: Some(client_id.to_string()),
@@ -220,72 +222,67 @@ mod tests {
     }
 
     #[test]
-    fn has_cli_entry_returns_true_when_cli_present() {
-        let mut devices = Devices::new();
-        devices.insert("dev1".into(), make_entry("cli", false));
-        assert!(has_cli_entry(&devices));
-    }
-
-    #[test]
-    fn has_cli_entry_returns_false_when_empty() {
-        assert!(!has_cli_entry(&Devices::new()));
-    }
-
-    #[test]
-    fn has_cli_entry_returns_false_for_other_clients() {
-        let mut devices = Devices::new();
-        devices.insert("dev1".into(), make_entry("web", true));
-        assert!(!has_cli_entry(&devices));
-    }
-
-    #[test]
-    fn approve_cli_moves_entry_from_pending_to_paired() {
+    fn approve_pending_moves_cli_entry() {
         let mut pending = Devices::new();
         pending.insert("dev-abc".into(), make_entry("cli", false));
 
         let mut paired = Devices::new();
-        let key = approve_cli(&mut pending, &mut paired);
+        let keys = approve_pending(&mut pending, &mut paired);
 
-        assert_eq!(key, Some("dev-abc".into()));
+        assert_eq!(keys, vec!["dev-abc"]);
         assert!(pending.is_empty());
         assert!(paired.contains_key("dev-abc"));
         assert!(paired["dev-abc"].approved_at_ms.is_some());
     }
 
     #[test]
-    fn approve_cli_returns_none_when_no_cli_entry() {
+    fn approve_pending_moves_gateway_client_entry() {
+        let mut pending = Devices::new();
+        pending.insert("dev-gw".into(), make_entry("gateway-client", false));
+
+        let mut paired = Devices::new();
+        let keys = approve_pending(&mut pending, &mut paired);
+
+        assert_eq!(keys, vec!["dev-gw"]);
+        assert!(paired.contains_key("dev-gw"));
+    }
+
+    #[test]
+    fn approve_pending_returns_empty_for_unknown_clients() {
         let mut pending = Devices::new();
         pending.insert("dev1".into(), make_entry("web", false));
         let mut paired = Devices::new();
 
-        assert_eq!(approve_cli(&mut pending, &mut paired), None);
+        let keys = approve_pending(&mut pending, &mut paired);
+        assert!(keys.is_empty());
         assert_eq!(pending.len(), 1);
     }
 
     #[test]
-    fn approve_cli_leaves_other_entries_in_pending() {
+    fn approve_pending_approves_multiple_entries() {
         let mut pending = Devices::new();
         pending.insert("dev-cli".into(), make_entry("cli", false));
+        pending.insert("dev-gw".into(), make_entry("gateway-client", false));
         pending.insert("dev-web".into(), make_entry("web", false));
 
         let mut paired = Devices::new();
-        approve_cli(&mut pending, &mut paired);
+        let keys = approve_pending(&mut pending, &mut paired);
 
+        assert_eq!(keys.len(), 2);
         assert_eq!(pending.len(), 1);
         assert!(pending.contains_key("dev-web"));
-        assert_eq!(paired.len(), 1);
-        assert!(paired.contains_key("dev-cli"));
+        assert_eq!(paired.len(), 2);
     }
 
     #[test]
-    fn approve_cli_preserves_existing_paired_entries() {
+    fn approve_pending_preserves_existing_paired_entries() {
         let mut pending = Devices::new();
         pending.insert("dev-cli".into(), make_entry("cli", false));
 
         let mut paired = Devices::new();
         paired.insert("dev-old".into(), make_entry("web", true));
 
-        approve_cli(&mut pending, &mut paired);
+        approve_pending(&mut pending, &mut paired);
 
         assert_eq!(paired.len(), 2);
         assert!(paired.contains_key("dev-old"));
@@ -293,12 +290,12 @@ mod tests {
     }
 
     #[test]
-    fn approve_cli_sets_approved_at_ms() {
+    fn approve_pending_sets_approved_at_ms() {
         let mut pending = Devices::new();
         pending.insert("dev1".into(), make_entry("cli", false));
         let mut paired = Devices::new();
 
-        approve_cli(&mut pending, &mut paired);
+        approve_pending(&mut pending, &mut paired);
 
         let ts = paired["dev1"].approved_at_ms.unwrap();
         assert!(ts > 0);
@@ -333,7 +330,7 @@ mod tests {
 
             let result: Option<Devices> = load_json(&path);
             assert!(result.is_some());
-            assert!(has_cli_entry(&result.unwrap()));
+            assert!(has_approved_entry(&result.unwrap()));
         }
 
         #[test]
@@ -370,7 +367,7 @@ mod tests {
             let mut pending: Devices = serde_json::from_str(json).unwrap();
             let mut paired = Devices::new();
 
-            approve_cli(&mut pending, &mut paired);
+            approve_pending(&mut pending, &mut paired);
 
             let output = serde_json::to_string(&paired["dev-cli"]).unwrap();
             assert!(output.contains("\"futureField\":42"));
@@ -396,12 +393,12 @@ mod tests {
             let final_paired: Devices = load_json(&paired_path).unwrap();
             let final_pending: Devices = load_json(&pending_path).unwrap();
 
-            assert!(has_cli_entry(&final_paired));
+            assert!(has_approved_entry(&final_paired));
             assert!(final_pending.is_empty());
         }
 
         #[test]
-        fn try_approve_skips_when_already_paired() {
+        fn try_approve_approves_gateway_client_even_when_cli_already_paired() {
             let dir = tempfile::tempdir().unwrap();
             let pending_path = dir.path().join("pending.json");
             let paired_path = dir.path().join("paired.json");
@@ -411,17 +408,18 @@ mod tests {
             paired.insert("dev-old".into(), make_entry("cli", true));
             fs::write(&paired_path, serde_json::to_string(&paired).unwrap()).unwrap();
 
-            // A new pending entry that should NOT be approved
+            // A new gateway-client pending entry that SHOULD be approved
             let mut pending = Devices::new();
-            pending.insert("dev-new".into(), make_entry("cli", false));
+            pending.insert("dev-gw".into(), make_entry("gateway-client", false));
             fs::write(&pending_path, serde_json::to_string(&pending).unwrap()).unwrap();
 
             try_approve(&pending_path, &paired_path);
 
-            // Pending should be unchanged (skipped because already paired)
+            let final_paired: Devices = load_json(&paired_path).unwrap();
+            assert_eq!(final_paired.len(), 2);
+            assert!(final_paired.contains_key("dev-gw"));
             let final_pending: Devices = load_json(&pending_path).unwrap();
-            assert_eq!(final_pending.len(), 1);
-            assert!(final_pending.contains_key("dev-new"));
+            assert!(final_pending.is_empty());
         }
     }
 }
