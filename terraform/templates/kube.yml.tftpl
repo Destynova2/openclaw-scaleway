@@ -138,7 +138,7 @@ spec:
     # Binaire Rust statique (~15MB), FROM scratch, ~10MB RAM.
     - name: grob
       image: ${registry_endpoint}/grob:latest
-      args: ["run", "--json-logs", "--config", "/config/config.toml"]
+      args: ["run", "--json-logs"]
       env:
         - name: GROB_CONFIG
           value: "/config/config.toml"
@@ -147,16 +147,12 @@ spec:
         readOnlyRootFilesystem: true
         capabilities:
           drop: ["ALL"]
-      livenessProbe:
-        httpGet:
-          path: /health
-          port: 8081
-        initialDelaySeconds: 3
-        periodSeconds: 30
       volumeMounts:
         - name: grob-config
           mountPath: /config
           readOnly: true
+        - name: grob-data
+          mountPath: /.grob
       resources:
         limits:
           memory: "64Mi"
@@ -250,3 +246,5 @@ spec:
       hostPath:
         path: /home/openclaw/grob
         type: Directory
+    - name: grob-data
+      emptyDir: {}
