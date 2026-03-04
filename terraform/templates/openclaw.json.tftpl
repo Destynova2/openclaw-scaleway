@@ -102,7 +102,7 @@
     "controlUi": {
       "allowedOrigins": ["https://app.${domain_name}"]
     },
-    "trustedProxies": ["127.0.0.1"],
+    "trustedProxies": ["127.0.0.1", "::1"],
     "auth": {
       "mode": "token",
       "token": "${gateway_token}"
@@ -126,6 +126,7 @@
     "profiles": {
       "chrome": {
         "cdpUrl": "http://127.0.0.1:9222",
+        "attachOnly": true,
         "color": "#4285F4"
       }
     }
