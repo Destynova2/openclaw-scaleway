@@ -102,7 +102,7 @@
     "controlUi": {
       "allowedOrigins": ["https://app.${domain_name}"]
     },
-    "trustedProxies": ["127.0.0.1"],
+    "trustedProxies": ["127.0.0.1", "::1"],
     "auth": {
       "mode": "token",
       "token": "${gateway_token}"
@@ -122,6 +122,7 @@
   "browser": {
     "enabled": true,
     "headless": true,
+    "attachOnly": true,
     "defaultProfile": "chrome",
     "profiles": {
       "chrome": {
