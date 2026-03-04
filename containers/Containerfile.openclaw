@@ -4,7 +4,7 @@
 
 # ARG global — visible dans tous les FROM
 # renovate: datasource=docker depName=ghcr.io/openclaw/openclaw
-ARG OPENCLAW_VERSION=2026.2.26
+ARG OPENCLAW_VERSION=2026.3.2
 
 # Stage 1 : telecharger tous les outils CLI (binaires statiques)
 FROM docker.io/library/alpine:3.21 AS tools
